@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>阿凡達潘朵拉騎龍體驗 - 張家界飛龍騎乘</title>
+
+  <!-- 載入 Cesium 3D 引擎 -->
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Cesium.js"></script>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+  <!-- 載入 MediaPipe Hands 手部追蹤 -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    html, body, #cesiumContainer { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
+
+    /* 儀表板 HUD */
+    #hud {
+      position: fixed; top: 16px; left: 16px; z-index: 999;
+      background: rgba(5, 15, 35, 0.85); color: #00e5ff; padding: 14px 18px;
+      border-radius: 12px; font-size: 13px; line-height: 1.6;
+      backdrop-filter: blur(8px); border: 1px solid rgba(0,229,255,0.3);
+      box-shadow: 0 0 15px rgba(0,229,255,0.2);
+    }
+
+    /* WebCam 視訊鏡頭預覽 */
+    #webcamContainer {
+      position: fixed; top: 16px; right: 16px; z-index: 999;
+      width: 180px; height: 135px; border-radius: 12px; overflow: hidden;
+      border: 2px solid #00e5ff; box-shadow: 0 4px 15px rgba(0,229,255,0.4);
+      background: #111;
+    }
+    #webcam { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+
+    /* 遮罩層 */
+    .overlay {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(2, 8, 20, 0.9); z-index: 2000;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      color: #fff; text-align: center; padding: 20px; backdrop-filter: blur(10px);
+    }
+
+    .overlay h1 { font-size: 32px; margin-bottom: 20px; color: #00e5ff; text-shadow: 0 0 15px rgba(0,229,255,0.8); }
+    .overlay p { font-size: 16px; line-height: 1.8; margin-bottom: 12px; max-width: 500px; color: #d0f4ff; }
+    .overlay ul { text-align: left; margin: 15px 0 25px 0; font-size: 15px; line-height: 2; color: #fff; }
+
+    .btn {
+      background: linear-gradient(135deg, #00e5ff, #7b00ff);
+      color: #fff; border: none; padding: 14px 40px; font-size: 20px; font-weight: bold;
+      border-radius: 30px; cursor: pointer; transition: all 0.2s ease;
+      box-shadow: 0 4px 25px rgba(0, 229, 255, 0.6);
+    }
+    .btn:hover { transform: scale(1.05); }
+
+    /* 倒數計時 */
+    #countdownOverlay { background: rgba(0, 0, 0, 0.4); pointer-events: none; }
+    #countdownText {
+      font-size: 120px; font-weight: 900; color: #00ffff;
+      text-shadow: 0 0 30px rgba(0, 255, 255, 0.8);
+      animation: pulse 0.8s infinite alternate;
+    }
+    @keyframes pulse { 0% { transform: scale(0.9); } 100% { transform: scale(1.1); } }
+
+    /* 抓牆提示 Banner */
+    #perchBanner {
+      position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+      background: rgba(0, 229, 255, 0.2); border: 2px solid #00e5ff;
+      color: #fff; padding: 15px 30px; border-radius: 30px; font-size: 18px;
+      font-weight: bold; text-shadow: 0 0 8px #00e5ff; backdrop-filter: blur(8px);
+      z-index: 999; text-align: center; box-shadow: 0 0 20px rgba(0,229,255,0.4);
+      animation: bounce 1s infinite alternate;
+    }
+    @keyframes bounce { 0% { transform: translate(-50%, 0); } 100% { transform: translate(-50%, -10px); } }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- 開始選單 -->
+  <div id="startOverlay" class="overlay">
+    <h1>🐉 潘朵拉哈利路亞山 - 騎龍體驗</h1>
+    <p>歡迎來到張家界（潘朵拉懸浮山脈）！請允許使用視訊鏡頭與手機陀螺儀：</p>
+    <ul>
+      <li>🐉 <b>雙手牽引韁繩：</b> 雙手高低控制飛龍轉向與俯仰。</li>
+      <li>🦅 <b>撞擊山壁爪抓：</b> 撞上地形時飛龍會爪實山壁並停棲。</li>
+      <li>📱 <b>VR 實境觀賞：</b> 抓山壁時可轉動手機觀賞 360° 潘朵拉美景。</li>
+      <li>🚀 <b>雙手拉下起飛：</b> 雙手同時向下壓拉，飛龍將往反方向再次起飛！</li>
+    </ul>
+    <button id="startBtn" class="btn">駕馭伊卡蘭 (START)</button>
+  </div>
+
+  <!-- 倒數 -->
+  <div id="countdownOverlay" class="overlay hidden">
+    <div id="countdownText">3</div>
+  </div>
+
+  <!-- 抓牆提示 -->
+  <div id="perchBanner" class="hidden">
+    🐾 飛龍已爪實山壁！<br>
+    <span style="font-size:14px; color:#00e5ff;">手機可 360° 轉動觀賞風景 | 雙手同時拉下重新起飛</span>
+  </div>
+
+  <div id="hud">
+    <b>🐉 飛龍狀態：<span id="statusTxt" style="color:#00ff00;">準備中...</span></b><br>
+    飛行高度：<span id="altTxt">1200 m</span><br>
+    巡航速度：<span id="spdTxt">80 km/h</span><br>
+    模式：<span id="modeTxt" style="color:#ffea00;">自由飛行</span>
+  </div>
+
+  <div id="webcamContainer">
+    <video id="webcam" autoplay playsinline muted></video>
+  </div>
+
+  <div id="cesiumContainer"></div>
+
+  <script>
+    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6Im1XckF5T2RaNG5QbEEzWGIiLCJqdGkiOiJhZThlOTdhMy0zOGYyLTQxY2EtOTU3YS0xYTVjYWM4ODdmYWEiLCJpZCI6NTA3Mzc1LCJzdWIiOiJkYWNra29vbCIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiJVbnRpdGxlZCIsImlhdCI6MTc5MDMyOTUyNX0.Nslgm1XCa91xOEaAqb9l0iOFnkyyez9yyjN-ENJ53kI';
+
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      animation: false, timeline: false, baseLayerPicker: false,
+      geocoder: false, homeButton: false, sceneModePicker: false,
+      navigationHelpButton: false, infoBox: false, selectionIndicator: false
+    });
+
+    // 載入 Google 3D 實景
+    async function init3D() {
+      try {
+        const tileset = await Cesium.createGooglePhotorealistic3DTileset();
+        viewer.scene.primitives.add(tileset);
+      } catch (err) { console.error("3D 載入失敗:", err); }
+    }
+    init3D();
+
+    // 潘朵拉生物螢光濾鏡 (Custom Shader)
+    const pandoraShader = `
+      uniform sampler2D colorTexture;
+      in vec2 v_textureCoordinates;
+      out vec4 fragColor;
+      void main() {
+        vec4 color = texture(colorTexture, v_textureCoordinates);
+        // 增強藍紫色與翠綠色調，模擬阿凡達夜間發光植物與異星大氣
+        color.r *= 0.6;
+        color.g *= 1.2;
+        color.b *= 1.5;
+        fragColor = color;
+      }
+    `;
+
+    viewer.scene.postProcessStages.add(new Cesium.PostProcessStage({
+      fragmentShader: pandoraShader
+    }));
+
+    // 張家界（哈利路亞山原型）起飛座標
+    const INIT_LON = 110.4350;
+    const INIT_LAT = 29.3520;
+    const INIT_ALT = 1200.0;
+    const INIT_HEADING = 45.0;
+
+    let planeLon = INIT_LON;
+    let planeLat = INIT_LAT;
+    let planeAlt = INIT_ALT;
+    let heading = INIT_HEADING;
+    let pitch = -2.0;
+    let roll = 0.0;
+    let airspeed = 0.00020;
+
+    let isPlaying = false;
+    let isPerched = false; // 是否處於爪實山壁狀態
+    let canCheckCollision = false;
+
+    // 定位至張家界
+    viewer.camera.setView({
+      destination: Cesium.Cartesian3.fromDegrees(INIT_LON, INIT_LAT, INIT_ALT),
+      orientation: {
+        heading: Cesium.Math.toRadians(INIT_HEADING),
+        pitch: Cesium.Math.toRadians(-2.0),
+        roll: 0.0
+      }
+    });
+
+    // 陀螺儀轉向支援 (手機 360 度觀看)
+    let gyroHeadingOffset = 0;
+    let gyroPitchOffset = 0;
+
+    if (window.DeviceOrientationEvent) {
+      window.addEventListener('deviceorientation', (e) => {
+        if (isPerched && e.alpha !== null) {
+          // 抓牆模式下允許手機陀螺儀控制視角
+          gyroHeadingOffset = e.alpha;
+          gyroPitchOffset = e.beta - 45;
+          updatePerchCamera();
+        }
+      });
+    }
+
+    function updateFlightCamera() {
+      viewer.camera.setView({
+        destination: Cesium.Cartesian3.fromDegrees(planeLon, planeLat, planeAlt),
+        orientation: {
+          heading: Cesium.Math.toRadians(heading),
+          pitch: Cesium.Math.toRadians(pitch),
+          roll: Cesium.Math.toRadians(roll)
+        }
+      });
+
+      document.getElementById('altTxt').innerText = `${Math.round(planeAlt)} m`;
+      document.getElementById('spdTxt').innerText = `${(airspeed * 300000).toFixed(0)} km/h`;
+    }
+
+    function updatePerchCamera() {
+      viewer.camera.setView({
+        destination: Cesium.Cartesian3.fromDegrees(planeLon, planeLat, planeAlt),
+        orientation: {
+          heading: Cesium.Math.toRadians(heading + gyroHeadingOffset),
+          pitch: Cesium.Math.toRadians(gyroPitchOffset),
+          roll: 0.0
+        }
+      });
+    }
+
+    // 觸發爪實山壁
+    function triggerPerch() {
+      isPerched = true;
+      canCheckCollision = false;
+      document.getElementById('modeTxt').innerText = "爪實山壁停棲中";
+      document.getElementById('modeTxt').style.color = "#00ffff";
+      document.getElementById('perchBanner').classList.remove('hidden');
+    }
+
+    // 雙手拉下重新起飛
+    function launchFromPerch() {
+      isPerched = false;
+      document.getElementById('perchBanner').classList.add('hidden');
+      document.getElementById('modeTxt').innerText = "自由飛行";
+      document.getElementById('modeTxt').style.color = "#ffea00";
+
+      // 往山壁相反方向（反向 180 度）彈射起飛
+      heading = (heading + 180) % 360;
+      pitch = 10.0; // 向上彈射爬升
+      airspeed = 0.00025;
+
+      setTimeout(() => { canCheckCollision = true; }, 1200);
+    }
+
+    // 倒數計時
+    function startCountdownSequence(onComplete) {
+      const countdownOverlay = document.getElementById('countdownOverlay');
+      const countdownText = document.getElementById('countdownText');
+      countdownOverlay.classList.remove('hidden');
+
+      let count = 3;
+      countdownText.innerText = count;
+
+      const timer = setInterval(() => {
+        count--;
+        if (count > 0) {
+          countdownText.innerText = count;
+        } else if (count === 0) {
+          countdownText.innerText = "SOAR!";
+        } else {
+          clearInterval(timer);
+          countdownOverlay.classList.add('hidden');
+          if (onComplete) onComplete();
+        }
+      }, 1000);
+    }
+
+    document.getElementById('startBtn').addEventListener('click', () => {
+      document.getElementById('startOverlay').classList.add('hidden');
+      startCountdownSequence(() => {
+        isPlaying = true;
+        setTimeout(() => { canCheckCollision = true; }, 1000);
+      });
+    });
+
+    // MediaPipe 手勢辨識
+    const videoElement = document.getElementById('webcam');
+    const statusTxt = document.getElementById('statusTxt');
+
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 2, modelComplexity: 1,
+      minDetectionConfidence: 0.5, minTrackingConfidence: 0.5
+    });
+
+    hands.onResults((results) => {
+      if (!isPlaying) return;
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length >= 2) {
+        statusTxt.innerText = "已連結飛龍神經韁繩";
+        statusTxt.style.color = "#00ff00";
+
+        const hand1 = results.multiHandLandmarks[0][9];
+        const hand2 = results.multiHandLandmarks[1][9];
+
+        const avgY = (hand1.y + hand2.y) / 2;
+
+        // 核心機制：停棲狀態下，雙手同時拉下 (y > 0.75) 觸發重新起飛
+        if (isPerched) {
+          if (avgY > 0.72) {
+            launchFromPerch();
+          }
+          return;
+        }
+
+        // 正常飛行姿態控制
+        const dx = hand2.x - hand1.x;
+        const dy = hand2.y - hand1.y;
+        let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+        if (angle > 90) angle -= 180;
+        if (angle < -90) angle += 180;
+
+        roll = -angle * 1.5;
+        pitch = (avgY - 0.5) * 45.0;
+
+      } else {
+        statusTxt.innerText = "請雙手前伸握住韁繩";
+        statusTxt.style.color = "#ffea00";
+        if (!isPerched) roll *= 0.8;
+      }
+    });
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => { await hands.send({ image: videoElement }); },
+      width: 320, height: 240
+    });
+    camera.start();
+
+    // 飛行 Loop
+    viewer.clock.onTick.addEventListener(() => {
+      if (!isPlaying || isPerched) return;
+
+      heading += roll * 0.05;
+
+      if (pitch < 0) {
+        airspeed += Math.abs(pitch) * 0.000000015;
+        planeAlt += pitch * 0.2;
+      } else {
+        airspeed -= pitch * 0.000000015;
+        planeAlt += pitch * 0.15;
+      }
+
+      planeAlt -= 0.04; // 自然滑翔下沉
+      if (airspeed < 0.00008) airspeed = 0.00008;
+
+      const radH = Cesium.Math.toRadians(heading);
+      planeLon += Math.sin(radH) * airspeed;
+      planeLat += Math.cos(radH) * airspeed;
+
+      updateFlightCamera();
+
+      // 碰撞檢測 -> 觸發抓牆（非 Crash）
+      if (canCheckCollision) {
+        const cartographic = Cesium.Cartographic.fromDegrees(planeLon, planeLat);
+        const groundHeight = viewer.scene.sampleHeight(cartographic);
+
+        if (groundHeight !== undefined && planeAlt <= groundHeight + 5.0) {
+          triggerPerch();
+        }
+      }
+    });
+  </script>
+</body>
+</html>
