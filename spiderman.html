@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>紐約蜘蛛俠體感擺盪 - Spider-Man Swing 3D</title>
+
+  <!-- 載入 Cesium 3D 引擎 -->
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Cesium.js"></script>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+  <!-- 載入 MediaPipe Hands 手勢追蹤 -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    html, body, #cesiumContainer { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
+
+    /* HUD 狀態欄 */
+    #hud {
+      position: fixed; top: 16px; left: 16px; z-index: 999;
+      background: rgba(15, 15, 25, 0.85); color: #fff; padding: 16px 20px;
+      border-radius: 12px; font-size: 14px; line-height: 1.8;
+      backdrop-filter: blur(8px); border: 1px solid rgba(255, 0, 85, 0.4);
+      box-shadow: 0 0 15px rgba(255, 0, 85, 0.2);
+    }
+
+    /* 右上角 WebCam 視訊鏡頭 */
+    #webcamContainer {
+      position: fixed; top: 16px; right: 16px; z-index: 999;
+      width: 220px; height: 165px; border-radius: 12px; overflow: hidden;
+      border: 2px solid #ff0055; box-shadow: 0 4px 15px rgba(255,0,85,0.4);
+      background: #111;
+    }
+    #webcam { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+
+    /* 螢幕準星 */
+    #crosshair {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 20px; height: 20px; border: 2px solid rgba(255, 255, 255, 0.8);
+      border-radius: 50%; pointer-events: none; z-index: 998;
+      transition: all 0.1s ease;
+    }
+    #crosshair.attached {
+      border-color: #ff0055; transform: translate(-50%, -50%) scale(1.4);
+      box-shadow: 0 0 10px #ff0055;
+    }
+
+    /* 全螢幕遮罩層 */
+    .overlay {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(10, 10, 15, 0.9); z-index: 2000;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      color: #fff; text-align: center; padding: 20px; backdrop-filter: blur(10px);
+    }
+    .overlay h1 { font-size: 32px; margin-bottom: 15px; color: #ff0055; text-shadow: 0 0 15px rgba(255,0,85,0.6); }
+    .overlay p { font-size: 15px; line-height: 1.8; margin-bottom: 12px; max-width: 520px; color: #ddd; }
+    .overlay ul { text-align: left; margin: 15px 0 25px 0; font-size: 15px; line-height: 2; color: #fff; }
+
+    .btn {
+      background: linear-gradient(135deg, #ff0055, #ff5500);
+      color: #fff; border: none; padding: 14px 40px; font-size: 20px; font-weight: bold;
+      border-radius: 30px; cursor: pointer; transition: all 0.2s ease;
+      box-shadow: 0 4px 20px rgba(255, 0, 85, 0.5);
+    }
+    .btn:hover { transform: scale(1.05); box-shadow: 0 6px 25px rgba(255, 0, 85, 0.8); }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- 開始遊戲 Overlay -->
+  <div id="startOverlay" class="overlay">
+    <h1>🕷️ 紐約蜘蛛俠體感擺盪體驗</h1>
+    <p>歡迎來到曼哈頓！利用你的手勢發射蜘蛛絲在大廈之間高空擺盪：</p>
+    <ul>
+      <li>☝️ <b>伸出食指（射絲）：</b> 朝鏡頭伸出食指，向準星目標發射蜘蛛絲。</li>
+      <li>✊ <b>收回手掌/握拳（斷絲）：</b> 握拳可切斷蜘蛛絲，利用慣性高空拋飛！</li>
+      <li>📐 <b>頭部/手部擺動：</b> 擺盪時可控制飛行的微幅轉向。</li>
+    </ul>
+    <button id="startBtn" class="btn">START (進入紐約)</button>
+  </div>
+
+  <div id="hud">
+    <b>🕷️ Spider-Man Web Swing</b><br>
+    高度：<span id="altTxt" style="color:#00e5ff; font-weight:bold;">150 m</span><br>
+    速度：<span id="spdTxt" style="color:#ff0055; font-weight:bold;">0 km/h</span><br>
+    狀態：<span id="statusTxt" style="color:#aaa;">等待手勢...</span>
+  </div>
+
+  <div id="crosshair"></div>
+
+  <div id="webcamContainer">
+    <video id="webcam" autoplay playsinline muted></video>
+  </div>
+
+  <div id="cesiumContainer"></div>
+
+  <script>
+    // Cesium Ion Token (請在此處填入你自己的 Token，否則 3D 建築可能會受限)
+    Cesium.Ion.defaultAccessToken = 'YOUR_CESIUM_TOKEN';
+
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      animation: false, timeline: false, baseLayerPicker: false,
+      geocoder: false, homeButton: false, sceneModePicker: false,
+      navigationHelpButton: false, infoBox: false, selectionIndicator: false
+    });
+
+    // 載入 Google 紐約 Photorealistic 3D Tiles
+    async function init3D() {
+      try {
+        const tileset = await Cesium.createGooglePhotorealistic3DTileset();
+        viewer.scene.primitives.add(tileset);
+      } catch (err) { console.error("3D 載入失敗:", err); }
+    }
+    init3D();
+
+    // 紐約時代廣場 / 曼哈頓初始位置
+    let playerPos = Cesium.Cartesian3.fromDegrees(-73.98513, 40.75889, 150.0);
+    let velocity = new Cesium.Cartesian3(0, 0, 0); // 運動速度向量
+    let heading = 0.0; // 視角 Yaw (度)
+    let pitch = -10.0; // 視角 Pitch (度)
+
+    let isShootingWeb = false;
+    let webAttachPoint = null; // 蜘蛛絲大廈附著點
+    let spiderWebEntity = null; // 3D 蜘蛛絲渲染 Entity
+
+    // 繪製蜘蛛絲 (白光線)
+    spiderWebEntity = viewer.entities.add({
+      polyline: {
+        positions: new Cesium.CallbackProperty(() => {
+          if (isShootingWeb && webAttachPoint) {
+            return [playerPos, webAttachPoint];
+          }
+          return [];
+        }, false),
+        width: 4,
+        material: Cesium.Color.WHITE
+      }
+    });
+
+    // 更新攝影機視角與 HUD
+    function updateCamera() {
+      const cartographic = Cesium.Cartographic.fromCartesian(playerPos);
+      const alt = cartographic.height;
+
+      viewer.camera.setView({
+        destination: playerPos,
+        orientation: {
+          heading: Cesium.Math.toRadians(heading),
+          pitch: Cesium.Math.toRadians(pitch),
+          roll: 0
+        }
+      });
+
+      const speedKmH = (Cesium.Cartesian3.magnitude(velocity) * 3.6 * 60).toFixed(0);
+      document.getElementById('altTxt').innerText = `${Math.round(alt)} m`;
+      document.getElementById('spdTxt').innerText = `${speedKmH} km/h`;
+    }
+
+    function requestFullScreen() {
+      const docEl = document.documentElement;
+      if (docEl.requestFullscreen) docEl.requestFullscreen();
+    }
+
+    document.getElementById('startBtn').addEventListener('click', () => {
+      requestFullScreen();
+      document.getElementById('startOverlay').classList.add('hidden');
+    });
+
+    // --- MediaPipe Hands 檢測邏輯 ---
+    const videoElement = document.getElementById('webcam');
+    const statusTxt = document.getElementById('statusTxt');
+    const crosshair = document.getElementById('crosshair');
+
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.6
+    });
+
+    hands.onResults((results) => {
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const landmarks = results.multiHandLandmarks[0];
+
+        // 判斷是否伸出食指 (食指尖 y < 食指關節 y 且 中指折起)
+        const isIndexExtended = landmarks[8].y < landmarks[6].y;
+        const isMiddleFolded = landmarks[12].y > landmarks[10].y;
+
+        if (isIndexExtended && isMiddleFolded) {
+          statusTxt.innerText = "🕸️ 發射蜘蛛絲！";
+          statusTxt.style.color = "#ff0055";
+
+          if (!isShootingWeb) {
+            shootSpiderWeb();
+          }
+        } else {
+          statusTxt.innerText = "🖐️ 手勢監控中（請伸出食指）";
+          statusTxt.style.color = "#00e5ff";
+          detachSpiderWeb();
+        }
+      } else {
+        statusTxt.innerText = "請將手部放入鏡頭內";
+        statusTxt.style.color = "#aaa";
+        detachSpiderWeb();
+      }
+    });
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => { await hands.send({ image: videoElement }); },
+      width: 320, height: 240
+    });
+    camera.start();
+
+    // --- 蜘蛛絲發射與物理擺盪 ---
+
+    // 1. 發射蜘蛛絲 (Raycast 檢測大廈)
+    function shootSpiderWeb() {
+      // 取得鏡頭正前方方向向量
+      const direction = viewer.camera.direction;
+      const ray = new Cesium.Ray(playerPos, direction);
+      
+      // 向前方發射 3D 射線尋找建築物附著點
+      const hit = viewer.scene.pickFromRay(ray);
+
+      if (hit && hit.position) {
+        webAttachPoint = hit.position;
+        isShootingWeb = true;
+        crosshair.classList.add('attached');
+      } else {
+        // 若沒打中建築物，預設附著在前方 150 米處
+        webAttachPoint = Cesium.Cartesian3.add(
+          playerPos,
+          Cesium.Cartesian3.multiplyByScalar(direction, 150, new Cesium.Cartesian3()),
+          new Cesium.Cartesian3()
+        );
+        isShootingWeb = true;
+      }
+    }
+
+    // 2. 斷開蜘蛛絲
+    function detachSpiderWeb() {
+      isShootingWeb = false;
+      webAttachPoint = null;
+      crosshair.classList.remove('attached');
+    }
+
+    // --- 遊戲物理主循環 ---
+    viewer.clock.onTick.addEventListener(() => {
+      // 重力加速度 (向下)
+      const gravity = new Cesium.Cartesian3(0, 0, -0.15);
+      velocity = Cesium.Cartesian3.add(velocity, gravity, velocity);
+
+      if (isShootingWeb && webAttachPoint) {
+        // 蜘蛛絲張力物理：產生向附著點拉引的加速度
+        const pullDir = Cesium.Cartesian3.subtract(webAttachPoint, playerPos, new Cesium.Cartesian3());
+        Cesium.Cartesian3.normalize(pullDir, pullDir);
+
+        // 蜘蛛絲拉力強度
+        const tensionForce = Cesium.Cartesian3.multiplyByScalar(pullDir, 0.45, new Cesium.Cartesian3());
+        velocity = Cesium.Cartesian3.add(velocity, tensionForce, velocity);
+        
+        // 擺盪時自動轉向附著點
+        heading += 0.3;
+      }
+
+      // 阻力/減速
+      velocity = Cesium.Cartesian3.multiplyByScalar(velocity, 0.985, velocity);
+
+      // 更新玩家位置
+      playerPos = Cesium.Cartesian3.add(playerPos, velocity, playerPos);
+
+      // 地面碰撞保護 (最低高度 20 米)
+      const carto = Cesium.Cartographic.fromCartesian(playerPos);
+      if (carto.height < 20) {
+        carto.height = 20;
+        playerPos = Cesium.Cartesian3.fromRadians(carto.longitude, carto.latitude, carto.height);
+        velocity.z = Math.abs(velocity.z) * 0.3; // 碰撞地面彈起
+      }
+
+      updateCamera();
+    });
+  </script>
+</body>
+</html>
