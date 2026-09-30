@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>紐約蜘蛛俠體感鐘擺擺盪 - Spider-Man Swing 3D Pro</title>
+
+  <!-- 載入 Cesium 3D 引擎 -->
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Cesium.js"></script>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+  <!-- 載入 MediaPipe Hands 手勢追蹤 -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    html, body, #cesiumContainer { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
+
+    #hud {
+      position: fixed; top: 16px; left: 16px; z-index: 999;
+      background: rgba(15, 15, 25, 0.85); color: #fff; padding: 16px 20px;
+      border-radius: 12px; font-size: 14px; line-height: 1.8;
+      backdrop-filter: blur(8px); border: 1px solid rgba(255, 0, 85, 0.4);
+      box-shadow: 0 0 15px rgba(255, 0, 85, 0.2);
+    }
+
+    #webcamContainer {
+      position: fixed; top: 16px; right: 16px; z-index: 999;
+      width: 220px; height: 165px; border-radius: 12px; overflow: hidden;
+      border: 2px solid #ff0055; box-shadow: 0 4px 15px rgba(255,0,85,0.4);
+      background: #111;
+    }
+    #webcam { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+
+    .overlay {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(10, 10, 15, 0.9); z-index: 2000;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      color: #fff; text-align: center; padding: 20px; backdrop-filter: blur(10px);
+    }
+    .overlay h1 { font-size: 32px; margin-bottom: 15px; color: #ff0055; text-shadow: 0 0 15px rgba(255,0,85,0.6); }
+    .overlay p { font-size: 15px; line-height: 1.8; margin-bottom: 12px; max-width: 520px; color: #ddd; }
+    .overlay ul { text-align: left; margin: 15px 0 25px 0; font-size: 15px; line-height: 2; color: #fff; }
+
+    .btn {
+      background: linear-gradient(135deg, #ff0055, #ff5500);
+      color: #fff; border: none; padding: 14px 40px; font-size: 20px; font-weight: bold;
+      border-radius: 30px; cursor: pointer; transition: all 0.2s ease;
+      box-shadow: 0 4px 20px rgba(255, 0, 85, 0.5);
+    }
+    .btn:hover { transform: scale(1.05); box-shadow: 0 6px 25px rgba(255, 0, 85, 0.8); }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <div id="startOverlay" class="overlay">
+    <h1>🕷️ 紐約蜘蛛俠高空體感擺盪</h1>
+    <p>真實鐘擺物理學！請像蜘蛛俠一樣舉高雙手進行盪鞦韆：</p>
+    <ul>
+      <li>🙌 <b>舉高雙手 + 伸出食指：</b> 向左右兩側大廈頂端噴射蜘蛛絲並抓緊！</li>
+      <li>🎢 <b>維持舉高（鐘擺）：</b> 抓緊蜘蛛絲時，會受重力俯衝並沿弧線拋高擺盪。</li>
+      <li>✊ <b>放下手/握拳（釋放）：</b> 放下雙手即可切斷蜘蛛絲，高空慣性飛躍！</li>
+    </ul>
+    <button id="startBtn" class="btn">START (開始擺盪)</button>
+  </div>
+
+  <div id="hud">
+    <b>🕷 Real Pendulum Swing</b><br>
+    高度：<span id="altTxt" style="color:#00e5ff; font-weight:bold;">150 m</span><br>
+    速度：<span id="spdTxt" style="color:#ff0055; font-weight:bold;">0 km/h</span><br>
+    左蜘蛛絲：<span id="leftWebTxt" style="color:#aaa;">未發射</span><br>
+    右蜘蛛絲：<span id="rightWebTxt" style="color:#aaa;">未發射</span>
+  </div>
+
+  <div id="webcamContainer">
+    <video id="webcam" autoplay playsinline muted></video>
+  </div>
+
+  <div id="cesiumContainer"></div>
+
+  <script>
+    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IkRtOUl3Uk1ES2VWMmI2eDMiLCJqdGkiOiI0YzY3N2UxYS0zMzkyLTQxOTItYjZkNi0zZDVhZmUxZDc1MDQiLCJpZCI6NTA3Mzc1LCJzdWIiOiJkYWNra29vbCIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiJWUl9leHAiLCJpYXQiOjE3OTA3NjE5NTZ9.Y8NCHgplk2X4yhZ-D3L6lzzn3E51_iDUVj7-1TfDlnM';
+
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      animation: false, timeline: false, baseLayerPicker: false,
+      geocoder: false, homeButton: false, sceneModePicker: false,
+      navigationHelpButton: false, infoBox: false, selectionIndicator: false
+    });
+
+    async function init3D() {
+      try {
+        const tileset = await Cesium.createGooglePhotorealistic3DTileset();
+        viewer.scene.primitives.add(tileset);
+      } catch (err) { console.error("3D 載入失敗:", err); }
+    }
+    init3D();
+
+    // 曼哈頓空中起飛點
+    let playerPos = Cesium.Cartesian3.fromDegrees(-73.98513, 40.75889, 150.0);
+    let velocity = new Cesium.Cartesian3(0, 0, 0); 
+    let heading = 0.0;
+
+    // 左右蜘蛛絲狀態
+    let webs = {
+      left:  { active: false, attachPoint: null, ropeLength: 0, entity: null },
+      right: { active: false, attachPoint: null, ropeLength: 0, entity: null }
+    };
+
+    // 建立發光的 3D 蜘蛛絲 Entity
+    function createWebEntity() {
+      return viewer.entities.add({
+        polyline: {
+          positions: new Cesium.CallbackProperty(() => []),
+          width: 5.0, // 加粗線條更清晰
+          material: new Cesium.PolylineGlowMaterialProperty({
+            glowPower: 0.25,
+            taperPower: 0.1,
+            color: Cesium.Color.WHITE
+          })
+        }
+      });
+    }
+
+    webs.left.entity = createWebEntity();
+    webs.right.entity = createWebEntity();
+
+    function updateWebEntities() {
+      ['left', 'right'].forEach(side => {
+        if (webs[side].active && webs[side].attachPoint) {
+          // 蜘蛛絲起點：玩家位置偏下方（模擬從手部射出）
+          const offsetPos = Cesium.Cartesian3.add(
+            playerPos, 
+            new Cesium.Cartesian3(0, 0, -2.0), 
+            new Cesium.Cartesian3()
+          );
+          webs[side].entity.polyline.positions = [offsetPos, webs[side].attachPoint];
+        } else {
+          webs[side].entity.polyline.positions = [];
+        }
+      });
+    }
+
+    function requestFullScreen() {
+      const docEl = document.documentElement;
+      if (docEl.requestFullscreen) docEl.requestFullscreen();
+    }
+
+    document.getElementById('startBtn').addEventListener('click', () => {
+      requestFullScreen();
+      document.getElementById('startOverlay').classList.add('hidden');
+    });
+
+    // --- MediaPipe Hands 雙手與舉高判斷 ---
+    const videoElement = document.getElementById('webcam');
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    hands.onResults((results) => {
+      let detectedLeft = false;
+      let detectedRight = false;
+
+      if (results.multiHandLandmarks && results.multiHandedness) {
+        for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+          const landmarks = results.multiHandLandmarks[i];
+          const label = results.multiHandedness[i].label; // Left or Right
+
+          // 1. 食指伸直判斷
+          const isIndexExtended = landmarks[8].y < landmarks[6].y;
+          // 2. 舉高手部判斷（手掌 Y 座標小於 0.55 代表舉到上半身/頭部）
+          const isHandRaised = landmarks[9].y < 0.55;
+
+          if (isIndexExtended && isHandRaised) {
+            if (label === 'Left') {
+              detectedRight = true;
+              if (!webs.right.active) shootWeb('right');
+            } else {
+              detectedLeft = true;
+              if (!webs.left.active) shootWeb('left');
+            }
+          }
+        }
+      }
+
+      if (!detectedLeft && webs.left.active) detachWeb('left');
+      if (!detectedRight && webs.right.active) detachWeb('right');
+
+      document.getElementById('leftWebTxt').innerText = webs.left.active ? "🕸️ 緊抓擺盪中" : "未發射";
+      document.getElementById('leftWebTxt').style.color = webs.left.active ? "#00ff00" : "#aaa";
+      document.getElementById('rightWebTxt').innerText = webs.right.active ? "🕸️ 緊抓擺盪中" : "未發射";
+      document.getElementById('rightWebTxt').style.color = webs.right.active ? "#00ff00" : "#aaa";
+    });
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => { await hands.send({ image: videoElement }); },
+      width: 320, height: 240
+    });
+    camera.start();
+
+    // --- 噴射蜘蛛絲 (Raycast 尋找高樓大廈) ---
+    function shootWeb(side) {
+      const angleOffset = (side === 'left') ? -30.0 : 30.0;
+      const radH = Cesium.Math.toRadians(heading + angleOffset);
+      const radP = Cesium.Math.toRadians(25.0); // 朝斜上方 25 度搜尋建築大廈頂部
+
+      const dir = new Cesium.Cartesian3(
+        Math.sin(radH) * Math.cos(radP),
+        Math.cos(radH) * Math.cos(radP),
+        Math.sin(radP)
+      );
+      Cesium.Cartesian3.normalize(dir, dir);
+
+      const ray = new Cesium.Ray(playerPos, dir);
+      const hit = viewer.scene.pickFromRay(ray);
+
+      if (hit && hit.position) {
+        const attachCarto = Cesium.Cartographic.fromCartesian(hit.position);
+        const playerCarto = Cesium.Cartographic.fromCartesian(playerPos);
+
+        // 必須抓到比自己更高的建築位置
+        if (attachCarto.height > playerCarto.height - 5) {
+          webs[side].attachPoint = hit.position;
+          webs[side].ropeLength = Cesium.Cartesian3.distance(playerPos, hit.position);
+          webs[side].active = true;
+          return;
+        }
+      }
+
+      // 未能抓到高的建築物，蜘蛛絲失效
+      webs[side].active = false;
+      webs[side].attachPoint = null;
+    }
+
+    function detachWeb(side) {
+      webs[side].active = false;
+      webs[side].attachPoint = null;
+    }
+
+    // --- 真實鐘擺物理學（Pendulum Kinematics） ---
+    viewer.clock.onTick.addEventListener(() => {
+      // 1. 重力向下 (向下加速度)
+      const gravity = new Cesium.Cartesian3(0, 0, -0.28);
+      velocity = Cesium.Cartesian3.add(velocity, gravity, velocity);
+
+      // 2. 鐘擺與張力學算
+      ['left', 'right'].forEach(side => {
+        if (webs[side].active && webs[side].attachPoint) {
+          const attachPt = webs[side].attachPoint;
+          const currentDist = Cesium.Cartesian3.distance(playerPos, attachPt);
+
+          // 當玩家墜落達到繩索極限長度（繩索拉直）
+          if (currentDist >= webs[side].ropeLength) {
+            // 從玩家指向附著點的方向向量
+            const ropeDir = Cesium.Cartesian3.subtract(attachPt, playerPos, new Cesium.Cartesian3());
+            Cesium.Cartesian3.normalize(ropeDir, ropeDir);
+
+            // 計算當前速度在繩索向量上的投影
+            const vDotR = Cesium.Cartesian3.dot(velocity, ropeDir);
+
+            // 當速度試圖「拉長繩索（遠離附著點）」時
+            if (vDotR < 0) {
+              // 消除徑向遠離分量，將速度轉化為沿著球面的「切線速度」（核心鐘擺動能轉換！）
+              const radialVel = Cesium.Cartesian3.multiplyByScalar(ropeDir, vDotR, new Cesium.Cartesian3());
+              velocity = Cesium.Cartesian3.subtract(velocity, radialVel, velocity);
+
+              // 向心力微幅加速，模擬擺盪到最低點時的強烈加速感
+              const centripetalAcceleration = Cesium.Cartesian3.multiplyByScalar(ropeDir, 0.18, new Cesium.Cartesian3());
+              velocity = Cesium.Cartesian3.add(velocity, centripetalAcceleration, velocity);
+            }
+          }
+        }
+      });
+
+      // 3. 微量風阻
+      velocity = Cesium.Cartesian3.multiplyByScalar(velocity, 0.993, velocity);
+
+      // 4. 大廈實體阻擋檢測（防止穿透大廈）
+      const nextPos = Cesium.Cartesian3.add(playerPos, velocity, new Cesium.Cartesian3());
+      const moveRay = new Cesium.Ray(playerPos, Cesium.Cartesian3.normalize(velocity, new Cesium.Cartesian3()));
+      const moveHit = viewer.scene.pickFromRay(moveRay);
+
+      if (moveHit && moveHit.position) {
+        const hitDist = Cesium.Cartesian3.distance(playerPos, moveHit.position);
+        const moveDist = Cesium.Cartesian3.distance(playerPos, nextPos);
+
+        if (hitDist <= moveDist + 1.2) {
+          velocity = Cesium.Cartesian3.multiplyByScalar(velocity, -0.3, velocity); // 撞牆反彈減速
+        } else {
+          playerPos = nextPos;
+        }
+      } else {
+        playerPos = nextPos;
+      }
+
+      // 5. 地面碰撞（如果沒抓住大廈，直接重力墜落至地面 10 米高度）
+      const carto = Cesium.Cartographic.fromCartesian(playerPos);
+      if (carto.height < 10) {
+        carto.height = 10;
+        playerPos = Cesium.Cartesian3.fromRadians(carto.longitude, carto.latitude, carto.height);
+        velocity = new Cesium.Cartesian3(0, 0, 0); // 摔落地面
+      }
+
+      // 6. 動態攝影機跟隨（隨速度擺盪轉向）
+      if (Cesium.Cartesian3.magnitude(velocity) > 0.1) {
+        const speedXY = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
+        if (speedXY > 0.05) {
+          const targetHeading = Cesium.Math.toDegrees(Math.atan2(velocity.x, velocity.y));
+          heading = heading * 0.92 + targetHeading * 0.08; 
+        }
+      }
+
+      viewer.camera.setView({
+        destination: playerPos,
+        orientation: {
+          heading: Cesium.Math.toRadians(heading),
+          pitch: Cesium.Math.toRadians(-12.0),
+          roll: 0
+        }
+      });
+
+      updateWebEntities();
+
+      // 更新 HUD
+      const speedKmH = (Cesium.Cartesian3.magnitude(velocity) * 3.6 * 60).toFixed(0);
+      document.getElementById('altTxt').innerText = `${Math.round(carto.height)} m`;
+      document.getElementById('spdTxt').innerText = `${speedKmH} km/h`;
+    });
+  </script>
+</body>
+</html>
