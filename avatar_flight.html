@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Avatar 飛龍懸浮島飛行體驗</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+      background-color: #000;
+    }
+    #ui {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      color: #00f3ff;
+      text-shadow: 0 0 8px rgba(0,243,255,0.8);
+      pointer-events: none;
+      font-family: monospace;
+    }
+    #crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 10px;
+      height: 10px;
+      border: 2px solid rgba(0, 243, 255, 0.5);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+  </style>
+  <!-- 載入 Three.js 與 SimplexNoise -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+</head>
+<body>
+
+  <div id="ui">
+    <h2>飛龍俯瞰/滑翔體驗</h2>
+    <p>[W / S] 俯衝 / 抬頭 (Pitch)</p>
+    <p>[A / D] 左傾 / 右傾 (Roll & Yaw)</p>
+    <p>[Space] 龍翼拍打加速</p>
+    <p>速度: <span id="speed">0</span> km/h</p>
+    <p>高度: <span id="alt">0</span> m</p>
+  </div>
+  <div id="crosshair"></div>
+
+  <script>
+    const simplex = new SimplexNoise();
+
+    // 1. 場景與相機設置
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x050814); // 暗藍夜空
+    scene.fog = new THREE.FogExp2(0x0a1128, 0.0035); // 阿凡達風格藍紫霧氣
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    document.body.appendChild(renderer.domElement);
+
+    // 2. 光照系統 (環境光 + 螢光)
+    const ambientLight = new THREE.AmbientLight(0x223355, 1.5);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0x88ccff, 1.2);
+    dirLight.position.set(100, 300, 100);
+    scene.add(dirLight);
+
+    // 3. 程序化生成懸浮島 (Procedural Floating Islands)
+    function createIsland(x, y, z, radius, height) {
+      const group = new THREE.Group();
+      
+      // 島嶼頂部平原/山脈
+      const topGeo = new THREE.CylinderGeometry(radius, radius * 0.2, height, 32, 16);
+      const pos = topGeo.attributes.position;
+
+      for (let i = 0; i < pos.count; i++) {
+        let vx = pos.getX(i);
+        let vy = pos.getY(i);
+        let vz = pos.getZ(i);
+
+        // 使用 Noise 變形岩石峭壁與地貌
+        let noiseVal = simplex.noise3D(vx * 0.03, vy * 0.03, vz * 0.03) * 12;
+        if (vy < 0) {
+          // 底層倒金字塔錐形變形
+          let factor = (vy + height/2) / height;
+          vx *= factor;
+          vz *= factor;
+        }
+        pos.setXYZ(i, vx + noiseVal, vy + noiseVal * 0.5, vz + noiseVal);
+      }
+      topGeo.computeVertexNormals();
+
+      // 阿凡達奇幻發光材質 (藍綠螢光)
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x112233,
+        roughness: 0.8,
+        metalness: 0.2,
+        emissive: 0x004455,
+        emissiveIntensity: 0.6,
+        wireframe: false
+      });
+
+      const islandMesh = new THREE.Mesh(topGeo, mat);
+      group.add(islandMesh);
+
+      // 頂部螢光苔蘚/植被層
+      const capGeo = new THREE.CircleGeometry(radius * 0.85, 24);
+      const capMat = new THREE.MeshBasicMaterial({
+        color: 0x00ffcc,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.4
+      });
+      const cap = new THREE.Mesh(capGeo, capMat);
+      cap.rotation.x = -Math.PI / 2;
+      cap.position.y = height / 2 + 0.5;
+      group.add(cap);
+
+      group.position.set(x, y, z);
+      scene.add(group);
+      return group;
+    }
+
+    // 生成懸浮群島
+    createIsland(0, 0, 0, 120, 150); // 主島
+    createIsland(-250, 80, -300, 70, 100);
+    createIsland(300, -50, -400, 90, 120);
+    createIsland(150, 120, -700, 110, 160);
+    createIsland(-400, 300, -800, 150, 200);
+
+    // 4. 空中發光孢子/微粒 (Particles)
+    const particleCount = 1500;
+    const pGeo = new THREE.BufferGeometry();
+    const pPos = new Float32Array(particleCount * 3);
+
+    for (let i = 0; i < particleCount * 3; i += 3) {
+      pPos[i] = (Math.random() - 0.5) * 2000;
+      pPos[i + 1] = (Math.random() - 0.5) * 1000;
+      pPos[i + 2] = (Math.random() - 0.5) * 2000;
+    }
+    pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+
+    const pMat = new THREE.PointsMaterial({
+      color: 0x00f3ff,
+      size: 3,
+      transparent: true,
+      opacity: 0.7
+    });
+    const particles = new THREE.Points(pGeo, pMat);
+    scene.add(particles);
+
+    // 5. 飛航物理與相機控制
+    let speed = 40;
+    const maxSpeed = 120;
+    const minSpeed = 15;
+    
+    // 初始化位置與姿態
+    camera.position.set(0, 150, 400);
+
+    const keys = {};
+    window.addEventListener('keydown', (e) => keys[e.code] = true);
+    window.addEventListener('keyup', (e) => keys[e.code] = false);
+
+    // 6. 動畫循環 (Animation Loop)
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+
+      // 控制邏輯
+      if (keys['KeyW']) camera.rotateX(-0.8 * delta); // Pitch Down
+      if (keys['KeyS']) camera.rotateX(0.8 * delta);  // Pitch Up
+      if (keys['KeyA']) camera.rotateZ(1.0 * delta);  // Roll Left
+      if (keys['KeyD']) camera.rotateZ(-1.0 * delta); // Roll Right
+
+      // 按空白鍵加速 (模擬拍翼)
+      if (keys['Space']) {
+        speed = Math.min(speed + 30 * delta, maxSpeed);
+      } else {
+        // 自然阻力與下滑速度變化
+        speed = THREE.MathUtils.lerp(speed, 35, delta * 0.5);
+      }
+
+      // 沿相機朝向向前飛行
+      camera.translateZ(-speed * delta);
+
+      // 微粒飄動效果
+      particles.rotation.y += 0.0005;
+
+      // 更新 UI 數據
+      document.getElementById('speed').innerText = Math.round(speed);
+      document.getElementById('alt').innerText = Math.round(camera.position.y);
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    // 視窗 resize 處理
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
