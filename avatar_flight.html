@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>阿凡達潘朵拉： Three.js 騎龍飛島體驗</title>
+
+  <!-- Three.js & SimplexNoise -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+
+  <!-- MediaPipe Hands -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Segoe UI', system-ui, sans-serif; }
+
+    #webglContainer { width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 1; }
+
+    /* HUD 介面 */
+    #hud {
+      position: fixed; top: 15px; left: 15px; z-index: 999;
+      background: rgba(4, 16, 38, 0.85); color: #00e5ff; padding: 16px;
+      border-radius: 14px; font-size: 13px; line-height: 1.6;
+      backdrop-filter: blur(12px); border: 1px solid rgba(0,229,255,0.4);
+      box-shadow: 0 0 20px rgba(0,229,255,0.25); min-width: 230px;
+    }
+
+    .stamina-container { width: 100%; background: #112233; height: 10px; border-radius: 5px; margin-top: 6px; overflow: hidden; border: 1px solid #00e5ff; }
+    #staminaBar { width: 100%; height: 100%; background: linear-gradient(90deg, #00ff88, #00e5ff); transition: width 0.1s linear; }
+
+    /* WebCam 預覽 */
+    #webcamContainer {
+      position: fixed; top: 15px; right: 15px; z-index: 999;
+      width: 150px; height: 110px; border-radius: 12px; overflow: hidden;
+      border: 2px solid #00e5ff; box-shadow: 0 0 15px rgba(0,229,255,0.3); background: #000;
+    }
+    #webcam { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+
+    /* 遮罩 UI */
+    .overlay {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(2, 6, 16, 0.92); z-index: 2000;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      color: #fff; text-align: center; padding: 20px; backdrop-filter: blur(15px);
+    }
+
+    .overlay h1 { font-size: 30px; margin-bottom: 15px; color: #00e5ff; text-shadow: 0 0 20px rgba(0,229,255,0.9); }
+    .overlay p { font-size: 15px; line-height: 1.8; margin-bottom: 12px; max-width: 550px; color: #bceeff; }
+    .overlay ul { text-align: left; margin: 15px 0 25px 0; font-size: 14px; line-height: 2; color: #e0f7ff; }
+
+    .btn {
+      background: linear-gradient(135deg, #00ffff, #8a2be2);
+      color: #fff; border: none; padding: 16px 48px; font-size: 18px; font-weight: bold;
+      border-radius: 40px; cursor: pointer; transition: all 0.25s ease;
+      box-shadow: 0 0 30px rgba(0, 255, 255, 0.7); text-transform: uppercase;
+    }
+    .btn:hover { transform: scale(1.05); }
+
+    /* 倒數計時器元件 */
+    #countdownOverlay {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.85); z-index: 3000;
+      display: flex; justify-content: center; align-items: center;
+      color: #00e5ff; font-size: 120px; font-weight: bold;
+      text-shadow: 0 0 50px #00e5ff; backdrop-filter: blur(10px);
+    }
+
+    #statusBanner {
+      position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+      background: rgba(0, 229, 255, 0.2); border: 2px solid #00e5ff;
+      color: #fff; padding: 12px 28px; border-radius: 30px; font-size: 15px;
+      font-weight: bold; text-shadow: 0 0 10px #00e5ff; backdrop-filter: blur(10px);
+      z-index: 999; text-align: center; box-shadow: 0 0 25px rgba(0,229,255,0.4);
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+
+<body>
+
+  <!-- 開始介面 -->
+  <div id="startOverlay" class="overlay">
+    <h1>🐉 騎龍翱翔： Three.js 潘朵拉懸浮島</h1>
+    <p>體驗純 3D 打造的奇幻飛島世界：</p>
+    <ul>
+      <li>🦅 <b>騎龍飛行：</b> 傾斜雙手轉向，雙手上下控制俯仰，雙手靠近可俯衝加速。</li>
+      <li>🏢 <b>爪實山壁/建築：</b> 撞擊懸浮島時會自動爪實，並<b>轉向 180° 背對山壁觀景</b>。</li>
+      <li>📱 <b>陀螺儀觀景：</b> 停棲時轉動手機即可 360° 環視四周風景。</li>
+      <li>🚀 <b>手勢起飛：</b> 停棲觀景時，<b>雙手同時向下拉</b>即可向當前方向彈射起飛！</li>
+    </ul>
+    <button id="startBtn" class="btn">開始體驗 (全螢幕橫向)</button>
+  </div>
+
+  <!-- 3秒倒數介面 -->
+  <div id="countdownOverlay" class="hidden">
+    <span id="countdownTxt">3</span>
+  </div>
+
+  <div id="statusBanner" class="hidden">
+    <span id="bannerText">自由飛行中</span>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud">
+    <b>🐉 龍狀態：<span id="statusTxt" style="color:#00ff00;">神經連結成功</span></b><br>
+    高度：<span id="altTxt">150 m</span> | 速度：<span id="spdTxt">120 km/h</span><br>
+    姿態：<span id="poseTxt" style="color:#ffea00;">平穩滑翔</span><br>
+    體力 (Stamina)：
+    <div class="stamina-container">
+      <div id="staminaBar"></div>
+    </div>
+  </div>
+
+  <div id="webcamContainer">
+    <video id="webcam" autoplay playsinline muted></video>
+  </div>
+
+  <div id="webglContainer"></div>
+
+  <script>
+    const simplex = new SimplexNoise();
+
+    // 1. Three.js 場景建置
+    const container = document.getElementById('webglContainer');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x040814); // 潘朵拉夜空
+    scene.fog = new THREE.FogExp2(0x081226, 0.0025); // 體積藍霧
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 3000);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    // 光照系統
+    const ambientLight = new THREE.AmbientLight(0x334466, 1.2);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0x00ffff, 1.5);
+    dirLight.position.set(200, 500, 200);
+    scene.add(dirLight);
+
+    // 2. 懸浮島生成邏輯與碰撞清單
+    const floatingIslands = [];
+
+    function createFloatingIsland(x, y, z, radius, height) {
+      const group = new THREE.Group();
+      
+      const topGeo = new THREE.CylinderGeometry(radius, radius * 0.15, height, 24, 12);
+      const pos = topGeo.attributes.position;
+
+      for (let i = 0; i < pos.count; i++) {
+        let vx = pos.getX(i);
+        let vy = pos.getY(i);
+        let vz = pos.getZ(i);
+
+        let noiseVal = simplex.noise3D(vx * 0.02, vy * 0.02, vz * 0.02) * (radius * 0.15);
+        if (vy < 0) {
+          let factor = (vy + height/2) / height;
+          vx *= factor;
+          vz *= factor;
+        }
+        pos.setXYZ(i, vx + noiseVal, vy + noiseVal * 0.5, vz + noiseVal);
+      }
+      topGeo.computeVertexNormals();
+
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x182c3d,
+        roughness: 0.8,
+        metalness: 0.2,
+        emissive: 0x003344,
+        emissiveIntensity: 0.5
+      });
+
+      const islandMesh = new THREE.Mesh(topGeo, mat);
+      group.add(islandMesh);
+
+      // 頂部發光苔蘚
+      const capGeo = new THREE.CircleGeometry(radius * 0.85, 20);
+      const capMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, side: THREE.DoubleSide, transparent: true, opacity: 0.35 });
+      const cap = new THREE.Mesh(capGeo, capMat);
+      cap.rotation.x = -Math.PI / 2;
+      cap.position.y = height / 2 + 0.5;
+      group.add(cap);
+
+      group.position.set(x, y, z);
+      scene.add(group);
+
+      floatingIslands.push({ position: new THREE.Vector3(x, y, z), radius, height, mesh: group });
+    }
+
+    // 生成懸浮群島
+    createFloatingIsland(0, 0, 0, 140, 180);
+    createFloatingIsland(-350, 100, -450, 90, 130);
+    createFloatingIsland(400, -40, -500, 110, 150);
+    createFloatingIsland(200, 180, -900, 150, 220);
+    createFloatingIsland(-500, 250, -1000, 180, 250);
+
+    // 發光孢子微粒
+    const pCount = 1200;
+    const pGeo = new THREE.BufferGeometry();
+    const pPos = new Float32Array(pCount * 3);
+    for (let i = 0; i < pCount * 3; i += 3) {
+      pPos[i] = (Math.random() - 0.5) * 2500;
+      pPos[i + 1] = (Math.random() - 0.5) * 1200;
+      pPos[i + 2] = (Math.random() - 0.5) * 2500;
+    }
+    pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+    const pMat = new THREE.PointsMaterial({ color: 0x00f3ff, size: 3.5, transparent: true, opacity: 0.6 });
+    const particles = new THREE.Points(pGeo, pMat);
+    scene.add(particles);
+
+    // 3. 飛行變數與姿態控制
+    let speed = 40.0;
+    let stamina = 100.0;
+    let isDiving = false;
+
+    let targetPitch = 0;
+    let targetRoll = 0;
+    let currentPitch = 0;
+    let currentRoll = 0;
+    let currentYaw = 0;
+
+    // 陀螺儀偏移角度
+    let gyroYawOffset = 0;
+    let gyroPitchOffset = 0;
+
+    let isPlaying = false;
+    let isPerched = false;
+    let canCheckCollision = true;
+
+    camera.position.set(0, 150, 500);
+
+    // 4. 全螢幕、橫屏與倒數
+    async function startExperience() {
+      try {
+        const docEl = document.documentElement;
+        if (docEl.requestFullscreen) await docEl.requestFullscreen();
+        else if (docEl.webkitRequestFullscreen) await docEl.webkitRequestFullscreen();
+
+        if (screen.orientation && screen.orientation.lock) {
+          await screen.orientation.lock('landscape').catch(e => console.log(e));
+        }
+      } catch (err) { console.log(err); }
+
+      initGyroscope();
+
+      document.getElementById('startOverlay').classList.add('hidden');
+      const countdownEl = document.getElementById('countdownOverlay');
+      countdownEl.classList.remove('hidden');
+
+      let count = 3;
+      document.getElementById('countdownTxt').innerText = count;
+
+      const timer = setInterval(() => {
+        count--;
+        if (count > 0) {
+          document.getElementById('countdownTxt').innerText = count;
+        } else {
+          clearInterval(timer);
+          countdownEl.classList.add('hidden');
+          document.getElementById('statusBanner').classList.remove('hidden');
+          isPlaying = true;
+        }
+      }, 1000);
+    }
+
+    document.getElementById('startBtn').addEventListener('click', startExperience);
+
+    // 5. 陀螺儀控制（停棲觀景使用）
+    function initGyroscope() {
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission().then(res => {
+          if (res === 'granted') window.addEventListener('deviceorientation', handleOrientation);
+        }).catch(console.error);
+      } else {
+        window.addEventListener('deviceorientation', handleOrientation);
+      }
+    }
+
+    function handleOrientation(e) {
+      if (!isPerched) return;
+      if (e.alpha !== null) gyroYawOffset = THREE.MathUtils.degToRad((360 - e.alpha) % 360);
+      if (e.beta !== null) gyroPitchOffset = THREE.MathUtils.degToRad((e.beta - 45) * 0.8);
+    }
+
+    // 6. 爪實山壁（反向 180 度觀景）與彈射起飛
+    function triggerPerch(reason = "懸浮山壁") {
+      if (isPerched) return;
+      isPerched = true;
+      canCheckCollision = false;
+
+      // 核心機制：視角轉向背對山壁 (180度)
+      currentYaw += Math.PI;
+      currentPitch = 0;
+      currentRoll = 0;
+      gyroYawOffset = 0;
+      gyroPitchOffset = 0;
+
+      document.getElementById('bannerText').innerHTML = `🐾 爪實${reason}！視角轉向反方向背對山壁<br><span style="font-size:13px; color:#00ffff;">轉動手機可 360° 欣賞風景 | 雙手向下拉重新起飛</span>`;
+      document.getElementById('poseTxt').innerText = `🐾 爪實${reason}觀景中`;
+      document.getElementById('poseTxt').style.color = "#00ffff";
+    }
+
+    function launchFromPerch() {
+      currentYaw += gyroYawOffset;
+      gyroYawOffset = 0;
+      gyroPitchOffset = 0;
+
+      isPerched = false;
+      document.getElementById('bannerText').innerText = "🦅 彈射起飛！重返藍天！";
+      document.getElementById('poseTxt').innerText = "🦅 翱翔中";
+      document.getElementById('poseTxt').style.color = "#00ff00";
+
+      currentPitch = 0.2; // 稍微抬頭爬升
+      speed = 60.0;
+
+      setTimeout(() => { canCheckCollision = true; }, 1500);
+    }
+
+    // 7. MediaPipe Hands 手勢控制
+    const videoElement = document.getElementById('webcam');
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+
+    let lastY = 0.5;
+    let flapCooldown = false;
+
+    hands.onResults((results) => {
+      if (!isPlaying) return;
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length >= 2) {
+        document.getElementById('statusTxt').innerText = "韁繩連結中";
+        document.getElementById('statusTxt').style.color = "#00ff00";
+
+        const h1 = results.multiHandLandmarks[0][9];
+        const h2 = results.multiHandLandmarks[1][9];
+        const avgY = (h1.y + h2.y) / 2;
+
+        // 停棲狀態：雙手向下拉起飛
+        if (isPerched) {
+          if (avgY > 0.72) launchFromPerch();
+          return;
+        }
+
+        const handDistance = Math.hypot(h1.x - h2.x, h1.y - h2.y);
+
+        // 俯衝控制
+        if (handDistance < 0.22) {
+          isDiving = true;
+          document.getElementById('poseTxt').innerText = "🔥 收翅俯衝加速！";
+          document.getElementById('poseTxt').style.color = "#ff3300";
+        } else {
+          isDiving = false;
+          document.getElementById('poseTxt').innerText = "🦅 展翼滑翔";
+          document.getElementById('poseTxt').style.color = "#00e5ff";
+        }
+
+        // 拍翅拍打
+        const deltaY = Math.abs(avgY - lastY);
+        if (deltaY > 0.18 && !flapCooldown && stamina >= 15) {
+          stamina -= 15;
+          speed += 25.0;
+          flapCooldown = true;
+          document.getElementById('bannerText').innerText = "⚡ 翅膀拍擊！獲得推力！";
+          setTimeout(() => { flapCooldown = false; }, 600);
+        }
+        lastY = avgY;
+
+        // 手勢傾斜控制 Roll 與 Pitch
+        const dx = h2.x - h1.x;
+        const dy = h2.y - h1.y;
+        let angle = Math.atan2(dy, dx);
+
+        targetRoll = -angle * 0.8;
+        targetPitch = (avgY - 0.5) * 1.2;
+
+      } else {
+        document.getElementById('statusTxt').innerText = "尋找雙手手勢...";
+        document.getElementById('statusTxt').style.color = "#ffea00";
+        targetRoll *= 0.8;
+      }
+    });
+
+    const cameraUtils = new Camera(videoElement, {
+      onFrame: async () => { await hands.send({ image: videoElement }); },
+      width: 320, height: 240
+    });
+    cameraUtils.start();
+
+    // 8. 主渲染與物理迴圈
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+
+      if (!isPlaying) {
+        renderer.render(scene, camera);
+        return;
+      }
+
+      if (isPerched) {
+        // 停棲觀景模式：相機角度由當前角度 + 陀螺儀組合
+        const euler = new THREE.Euler(currentPitch + gyroPitchOffset, currentYaw + gyroYawOffset, 0, 'YXZ');
+        camera.quaternion.setFromEuler(euler);
+      } else {
+        if (stamina < 100) stamina += 4 * delta;
+
+        // 平滑姿態變化
+        currentPitch = THREE.MathUtils.lerp(currentPitch, targetPitch, delta * 3);
+        currentRoll = THREE.MathUtils.lerp(currentRoll, targetRoll, delta * 3);
+        currentYaw += currentRoll * delta * 0.8;
+
+        if (isDiving) {
+          speed = THREE.MathUtils.lerp(speed, 120, delta * 1.5);
+          currentPitch = -0.6;
+        } else {
+          speed = THREE.MathUtils.lerp(speed, 40, delta * 0.5);
+        }
+
+        // 旋轉相機與向前飛行
+        const euler = new THREE.Euler(currentPitch, currentYaw, currentRoll, 'YXZ');
+        camera.quaternion.setFromEuler(euler);
+
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        camera.position.addScaledVector(forward, speed * delta);
+
+        // 碰撞檢測 (懸浮島)
+        if (canCheckCollision) {
+          for (let island of floatingIslands) {
+            const dist = camera.position.distanceTo(island.position);
+            if (dist <= island.radius * 0.9) {
+              triggerPerch("懸浮山壁");
+              break;
+            }
+          }
+        }
+      }
+
+      // 孢子微粒流動
+      particles.rotation.y += 0.0003;
+
+      // 更新 HUD
+      document.getElementById('altTxt').innerText = `${Math.round(camera.position.y)} m`;
+      document.getElementById('spdTxt').innerText = `${Math.round(speed)} km/h`;
+      document.getElementById('staminaBar').style.width = `${stamina}%`;
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
