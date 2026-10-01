@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>手扮樹枝 - 蜥蜴寫真相機</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+        .canvas-container {
+            position: relative;
+            touch-action: none;
+            user-select: none;
+        }
+        /* Glassmorphism styles */
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #3b82f6;
+            border-radius: 3px;
+        }
+        /* Lizard selection button glow */
+        .lizard-card.active {
+            border-color: #22c55e;
+            box-shadow: 0 0 15px rgba(34, 197, 94, 0.4);
+            background: rgba(34, 197, 94, 0.15);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between overflow-x-hidden bg-slate-950 text-slate-100">
+
+    <!-- Header -->
+    <header class="w-full py-4 px-6 glass-panel border-b border-slate-800 sticky top-0 z-50 flex justify-between items-center">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-emerald-500/20 border border-emerald-500 flex items-center justify-center text-emerald-400">
+                <i class="fa-solid font-bold text-xl fa-worm"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-wide bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">手扮樹枝 · 蜥蜴寫真</h1>
+                <p class="text-xs text-slate-400">伸出雙手扮樹枝，讓可愛蜥蜴棲息在手掌上！</p>
+            </div>
+        </div>
+        <button id="help-btn" class="px-3 py-1.5 rounded-lg text-sm bg-slate-800 hover:bg-slate-700 border border-slate-700 transition flex items-center gap-2 text-slate-300">
+            <i class="fa-solid fa-circle-question text-emerald-400"></i> 使用說明
+        </button>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        
+        <!-- Camera / Editor Viewport (Left/Center 2 Cols) -->
+        <div class="lg:col-span-2 flex flex-col items-center gap-4">
+            
+            <div id="viewport-box" class="w-full relative rounded-2xl overflow-hidden bg-slate-900 border border-slate-800 shadow-2xl aspect-[4/3] flex items-center justify-center">
+                
+                <!-- Hidden Real Video Source -->
+                <video id="webcam-video" autoplay playsinline class="hidden"></video>
+                
+                <!-- Interactive Main Canvas -->
+                <canvas id="app-canvas" class="w-full h-full object-contain cursor-grab active:cursor-grabbing"></canvas>
+
+                <!-- Camera Offline/Permission Prompt overlay -->
+                <div id="camera-prompt" class="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 p-6 text-center z-10">
+                    <div class="w-20 h-20 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mb-4 text-emerald-400 text-3xl animate-pulse">
+                        <i class="fa-solid fa-camera"></i>
+                    </div>
+                    <h2 class="text-2xl font-bold mb-2">準備開始拍照</h2>
+                    <p class="text-slate-400 max-w-md text-sm mb-6">請允許存取攝影機，並伸出手臂或手掌做出像樹枝的姿勢。</p>
+                    <button id="start-cam-btn" class="px-6 py-3 rounded-xl font-bold bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-lg shadow-emerald-500/25 transition transform hover:scale-105 active:scale-95 flex items-center gap-2">
+                        <i class="fa-solid fa-video"></i> 開啟攝影機
+                    </button>
+                </div>
+
+                <!-- Touch Control Overlay Hints -->
+                <div id="drag-hint" class="hidden absolute top-4 left-1/2 -translate-x-1/2 bg-slate-950/80 backdrop-blur-md px-4 py-1.5 rounded-full border border-slate-700/50 text-xs text-slate-300 pointer-events-none flex items-center gap-2 z-20">
+                    <i class="fa-solid fa-hand-pointer text-emerald-400"></i> 可用單指拖曳、雙指或滾輪旋轉縮放蜥蜴
+                </div>
+
+                <!-- Snap Photo Toast -->
+                <div id="flash-overlay" class="absolute inset-0 bg-white pointer-events-none opacity-0 transition-opacity duration-300 z-30"></div>
+            </div>
+
+            <!-- Primary Shutter & Action Bar -->
+            <div class="flex flex-wrap items-center justify-center gap-4 w-full p-3 glass-panel rounded-2xl">
+                <button id="capture-btn" disabled class="px-8 py-3 rounded-xl font-bold bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 shadow-lg shadow-emerald-500/20 transition flex items-center gap-2 text-lg">
+                    <i class="fa-solid fa-camera-retro"></i> 拍攝照片
+                </button>
+                
+                <button id="retake-btn" class="hidden px-6 py-3 rounded-xl font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-2">
+                    <i class="fa-solid fa-rotate-left"></i> 重新拍攝
+                </button>
+
+                <button id="download-btn" class="hidden px-6 py-3 rounded-xl font-bold bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white shadow-lg shadow-cyan-500/25 transition flex items-center gap-2">
+                    <i class="fa-solid fa-download"></i> 下載相片
+                </button>
+            </div>
+        </div>
+
+        <!-- Controls & Customization Sidebar (Right 1 Col) -->
+        <div class="glass-panel p-5 rounded-2xl flex flex-col gap-6 border border-slate-800">
+            
+            <div>
+                <h3 class="text-sm uppercase tracking-wider text-slate-400 font-bold mb-3 flex items-center gap-2">
+                    <i class="fa-solid fa-dragon text-emerald-400"></i> 1. 選擇蜥蜴種類
+                </h3>
+                <div class="grid grid-cols-3 gap-3" id="lizard-selector">
+                    <!-- Dynamic lizard selection buttons inserted here -->
+                </div>
+            </div>
+
+            <hr class="border-slate-800">
+
+            <!-- Fine-tuning Overlay Controls -->
+            <div class="flex flex-col gap-4">
+                <h3 class="text-sm uppercase tracking-wider text-slate-400 font-bold flex items-center gap-2">
+                    <i class="fa-solid fa-sliders text-emerald-400"></i> 2. 調整蜥蜴位置與姿態
+                </h3>
+
+                <!-- Size Slider -->
+                <div class="space-y-1">
+                    <div class="flex justify-between text-xs text-slate-300">
+                        <span>大小尺寸 (Scale)</span>
+                        <span id="scale-val" class="text-emerald-400 font-mono">1.0x</span>
+                    </div>
+                    <input type="range" id="scale-slider" min="0.3" max="3.0" step="0.05" value="1.0" class="w-full accent-emerald-500 bg-slate-800 h-2 rounded-lg cursor-pointer">
+                </div>
+
+                <!-- Rotation Slider -->
+                <div class="space-y-1">
+                    <div class="flex justify-between text-xs text-slate-300">
+                        <span>旋轉角度 (Rotation)</span>
+                        <span id="rotate-val" class="text-emerald-400 font-mono">0°</span>
+                    </div>
+                    <input type="range" id="rotate-slider" min="-180" max="180" step="1" value="0" class="w-full accent-emerald-500 bg-slate-800 h-2 rounded-lg cursor-pointer">
+                </div>
+
+                <!-- Flip Toggle -->
+                <div class="flex justify-between items-center pt-1">
+                    <span class="text-xs text-slate-300">鏡像翻轉蜥蜴</span>
+                    <button id="flip-btn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium border border-slate-700 transition flex items-center gap-2">
+                        <i class="fa-solid fa-right-left text-emerald-400"></i> 左右翻轉
+                    </button>
+                </div>
+
+                <!-- Quick Alignment Helpers -->
+                <div class="pt-2">
+                    <span class="text-xs text-slate-400 block mb-2">快速置中重設：</span>
+                    <div class="flex gap-2">
+                        <button id="reset-pos-btn" class="flex-1 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition">
+                            <i class="fa-solid fa-arrows-to-dot"></i> 位置重設
+                        </button>
+                        <button id="auto-detect-btn" class="flex-1 py-1.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-700/50 text-xs transition flex items-center justify-center gap-1">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> 智慧配對
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <hr class="border-slate-800">
+
+            <!-- Effect Filters -->
+            <div>
+                <h3 class="text-sm uppercase tracking-wider text-slate-400 font-bold mb-3 flex items-center gap-2">
+                    <i class="fa-solid fa-wand-magic text-emerald-400"></i> 3. 光影與相片風格
+                </h3>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                    <button class="filter-btn active py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-center" data-filter="none">原色 (Natural)</button>
+                    <button class="filter-btn py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-center" data-filter="jungle">熱帶雨林 (Jungle)</button>
+                    <button class="filter-btn py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-center" data-filter="warm">暖陽日光 (Warm)</button>
+                    <button class="filter-btn py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-center" data-filter="dramatic">深色對比 (Dramatic)</button>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Instruction Modal -->
+    <div id="instruction-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 opacity-0 pointer-events-none transition-opacity duration-300">
+        <div class="glass-panel max-w-md w-full p-6 rounded-2xl border border-slate-700 shadow-2xl relative">
+            <button id="close-modal-btn" class="absolute top-4 right-4 text-slate-400 hover:text-white text-xl">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+            <h3 class="text-xl font-bold text-emerald-400 mb-4 flex items-center gap-2">
+                <i class="fa-solid fa-hand"></i> 玩法說明指南
+            </h3>
+            <ol class="space-y-3 text-slate-300 text-sm list-decimal list-inside">
+                <li class="leading-relaxed">點擊<strong class="text-emerald-400">「開啟攝影機」</strong>允許網頁調用你的鏡頭。</li>
+                <li class="leading-relaxed">用你的手或手臂做出類似<strong class="text-emerald-400">樹枝伸展的姿勢</strong>（例如橫放手臂，伸出手指）。</li>
+                <li class="leading-relaxed">在右側選單選擇你喜歡的蜥蜴種類（綠鬣蜥、變色龍、松果蜥等）。</li>
+                <li class="leading-relaxed">用手勢或滑鼠直接在畫面上<strong class="text-emerald-400">拖曳、縮放、旋轉</strong>蜥蜴，讓牠精準貼合在你的手或手臂上。</li>
+                <li class="leading-relaxed">滿意後點擊<strong class="text-emerald-400">「拍攝照片」</strong>，拍攝完成後可將照片存入手機或電腦！</li>
+            </ol>
+            <button id="modal-ok-btn" class="w-full mt-6 py-2.5 rounded-xl bg-emerald-500 font-bold text-slate-950 hover:bg-emerald-400 transition">我知道了，開始體驗！</button>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="py-4 text-center text-xs text-slate-500 border-t border-slate-900">
+        <p>樹枝蜥蜴相機 App &copy; 2026 - HTML5 WebCam API / Canvas 實時繪製</p>
+    </footer>
+
+    <script>
+        // Lizard Data with Procedural SVG Generation for photorealistic/stylized renders
+        const LIZARDS = [
+            {
+                id: 'chameleon',
+                name: '高冠變色龍',
+                color: '#22c55e',
+                buildSVG: () => `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 180" width="300" height="180">
+                    <defs>
+                        <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+                            <feDropShadow dx="2" dy="8" stdDeviation="5" flood-color="#000" flood-opacity="0.4"/>
+                        </filter>
+                        <linearGradient id="bodyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#4ade80"/>
+                            <stop offset="50%" stop-color="#16a34a"/>
+                            <stop offset="100%" stop-color="#064e3b"/>
+                        </linearGradient>
+                    </defs>
+                    <g filter="url(#shadow)">
+                        <!-- Curly Tail -->
+                        <path d="M 50 110 C 20 110 10 70 30 50 C 45 35 65 50 55 65 C 45 75 35 60 45 55" fill="none" stroke="#16a34a" stroke-width="14" stroke-linecap="round"/>
+                        <!-- Back Legs -->
+                        <path d="M 80 110 Q 70 135 85 145 M 85 145 L 95 142" stroke="#15803d" stroke-width="10" stroke-linecap="round" fill="none"/>
+                        <!-- Body -->
+                        <ellipse cx="120" cy="100" rx="65" ry="35" fill="url(#bodyGrad)"/>
+                        <!-- Back Ridge Teeth -->
+                        <path d="M 70 75 L 75 65 L 82 72 L 89 62 L 96 70 L 103 59 L 110 68 L 118 58 L 126 67 L 134 58 L 142 68 L 150 60 L 158 70" fill="none" stroke="#facc15" stroke-width="4"/>
+                        <!-- Stripes -->
+                        <path d="M 100 75 Q 105 100 100 125 M 120 70 Q 125 100 120 128 M 140 72 Q 145 100 140 125" fill="none" stroke="#f59e0b" stroke-width="4" opacity="0.8"/>
+                        <!-- Front Legs clutching -->
+                        <path d="M 155 105 Q 170 125 160 145 M 160 145 L 150 142" stroke="#16a34a" stroke-width="10" stroke-linecap="round" fill="none"/>
+                        <!-- Head & Helmet Casque -->
+                        <path d="M 160 95 C 160 60 185 40 210 65 L 230 85 C 240 95 230 115 200 115 Z" fill="url(#bodyGrad)"/>
+                        <!-- Big Turret Eye -->
+                        <circle cx="205" cy="85" r="14" fill="#15803d"/>
+                        <circle cx="205" cy="85" r="9" fill="#facc15"/>
+                        <circle cx="207" cy="84" r="4" fill="#000"/>
+                        <!-- Mouth line -->
+                        <path d="M 230 98 Q 210 102 195 100" fill="none" stroke="#064e3b" stroke-width="2"/>
+                    </g>
+                </svg>`
+            },
+            {
+                id: 'iguana',
+                name: '綠鬣蜥',
+                color: '#10b981',
+                buildSVG: () => `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 160" width="320" height="160">
+                    <defs>
+                        <filter id="shadow2" x="-20%" y="-20%" width="140%" height="140%">
+                            <feDropShadow dx="3" dy="6" stdDeviation="4" flood-color="#000" flood-opacity="0.4"/>
+                        </filter>
+                    </defs>
+                    <g filter="url(#shadow2)">
+                        <!-- Long Tail -->
+                        <path d="M 20 120 Q 60 115 100 105" fill="none" stroke="#059669" stroke-width="10" stroke-linecap="round"/>
+                        <path d="M 5 125 Q 30 122 60 117" fill="none" stroke="#047857" stroke-width="5" stroke-linecap="round"/>
+                        <!-- Back Spikes -->
+                        <path d="M 90 85 L 93 70 L 105 82 L 110 65 L 120 80 L 128 62 L 140 78 L 150 58 L 160 76 L 172 58 L 182 76 L 195 62 L 205 78 L 220 68 L 228 82" fill="none" stroke="#10b981" stroke-width="4"/>
+                        <!-- Body -->
+                        <path d="M 90 105 C 90 75 140 70 210 80 C 230 83 250 95 240 115 C 200 125 130 125 90 105 Z" fill="#059669"/>
+                        <!-- Dewlap (Throat Fan) -->
+                        <path d="M 210 105 Q 230 135 200 130 Z" fill="#f59e0b" opacity="0.9"/>
+                        <!-- Front Leg -->
+                        <path d="M 190 105 Q 205 130 215 135 M 215 135 L 225 130" stroke="#047857" stroke-width="9" stroke-linecap="round"/>
+                        <!-- Back Leg -->
+                        <path d="M 110 105 Q 120 130 130 135 M 130 135 L 140 130" stroke="#047857" stroke-width="9" stroke-linecap="round"/>
+                        <!-- Head -->
+                        <path d="M 210 80 C 230 75 260 85 255 100 C 245 112 220 112 210 105 Z" fill="#10b981"/>
+                        <!-- Eye -->
+                        <circle cx="235" cy="88" r="5" fill="#f59e0b"/>
+                        <circle cx="235" cy="88" r="2" fill="#000"/>
+                    </g>
+                </svg>`
+            },
+            {
+                id: 'gecko',
+                name: '蓋亞那豹紋守宮',
+                color: '#f59e0b',
+                buildSVG: () => `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 160" width="280" height="160">
+                    <defs>
+                        <filter id="shadow3" x="-20%" y="-20%" width="140%" height="140%">
+                            <feDropShadow dx="2" dy="5" stdDeviation="4" flood-color="#000" flood-opacity="0.35"/>
+                        </filter>
+                    </defs>
+                    <g filter="url(#shadow3)">
+                        <!-- Fat Plump Tail -->
+                        <path d="M 30 110 Q 50 80 90 95 Q 60 120 30 110 Z" fill="#fbbf24"/>
+                        <!-- Spots on tail -->
+                        <circle cx="50" cy="100" r="4" fill="#451a03"/>
+                        <circle cx="65" cy="96" r="3" fill="#451a03"/>
+                        <!-- Body -->
+                        <ellipse cx="140" cy="95" rx="55" ry="25" fill="#f59e0b"/>
+                        <!-- Leopard Spots -->
+                        <circle cx="110" cy="88" r="4" fill="#78350f"/>
+                        <circle cx="125" cy="100" r="5" fill="#78350f"/>
+                        <circle cx="140" cy="85" r="4.5" fill="#78350f"/>
+                        <circle cx="155" cy="98" r="5" fill="#78350f"/>
+                        <circle cx="170" cy="88" r="4" fill="#78350f"/>
+                        <!-- Legs with sticky toe pads -->
+                        <path d="M 105 105 Q 95 125 105 130" stroke="#d97706" stroke-width="7" stroke-linecap="round" fill="none"/>
+                        <path d="M 175 105 Q 185 125 175 130" stroke="#d97706" stroke-width="7" stroke-linecap="round" fill="none"/>
+                        <!-- Cute Head -->
+                        <path d="M 180 85 C 195 70 230 75 235 95 C 230 110 190 110 180 85 Z" fill="#fbcfe8"/>
+                        <path d="M 180 85 C 195 70 225 75 230 90 C 210 100 190 100 180 85 Z" fill="#f59e0b"/>
+                        <!-- Big Cute Eye -->
+                        <circle cx="210" cy="8
