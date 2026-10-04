@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR 豆袋投擲挑戰 (小物件優化版)</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; padding: 0;
+            background-color: #121212;
+            color: #ffffff;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            min-height: 100vh;
+        }
+        #game-container {
+            position: relative;
+            width: 640px; height: 480px;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            background: #000;
+        }
+        video, canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 640px; height: 480px;
+            transform: scaleX(1); /* 後置鏡頭不進行鏡像翻轉 */
+        }
+        .overlay-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            z-index: 20; text-align: center; padding: 20px;
+        }
+        .btn {
+            background: #ff9800; color: #fff;
+            border: none; padding: 12px 32px;
+            font-size: 20px; font-weight: bold;
+            border-radius: 50px; cursor: pointer;
+            box-shadow: 0 4px 15px rgba(255, 152, 0, 0.4);
+            transition: transform 0.2s;
+        }
+        .btn:hover { transform: scale(1.05); }
+        
+        #hud-board {
+            position: absolute;
+            top: 15px; left: 0; width: 100%;
+            display: flex; justify-content: space-between;
+            padding: 0 20px;
+            font-size: 22px; font-weight: bold;
+            color: #ffeb3b;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            z-index: 10;
+        }
+        #status-overlay {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px; font-weight: 900;
+            color: #00e676; text-shadow: 0 0 20px rgba(0,230,118,0.8);
+            z-index: 12; pointer-events: none; text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="hud-board">
+            <div>第 <span id="round-num">1</span> / 3 球</div>
+            <div>總分: <span id="total-score">0</span></div>
+        </div>
+
+        <div id="status-overlay"></div>
+
+        <video id="webcam" autoplay playsinline muted></video>
+        <canvas id="arCanvas" width="640" height="480"></canvas>
+
+        <div id="start-screen" class="overlay-screen">
+            <h1 style="color: #ffeb3b; margin-bottom: 10px;">🎯 AR 豆袋投擲挑戰</h1>
+            <p style="font-size: 15px; line-height: 1.6; color: #ddd; max-width: 480px; margin-bottom: 25px;">
+                【重要注意事項】<br>
+                1. 倒數 <b>3, 2, 1</b> 期間，請<b>保持畫面乾淨（不要擺物件）</b>！<br>
+                2. 顯示<b>「請拋出！」</b>時，才把物件拋入得分區。<br>
+                3. 已大幅提升小物件檢測靈敏度！
+            </p>
+            <button class="btn" onclick="startGame()">Start 開始遊戲</button>
+        </div>
+
+        <div id="end-screen" class="overlay-screen" style="display: none;">
+            <h1 style="color: #00e676;">🏆 遊戲結束！</h1>
+            <p style="font-size: 24px; margin: 15px 0;">最終總得分：<span id="final-score" style="color: #ffeb3b; font-weight: bold;">0</span> 分</p>
+            <button class="btn" onclick="startGame()">再玩一次 🔄</button>
+        </div>
+    </div>
+
+<script>
+const video = document.getElementById('webcam');
+const canvas = document.getElementById('arCanvas');
+const ctx = canvas.getContext('2d');
+
+const startScreen = document.getElementById('start-screen');
+const endScreen = document.getElementById('end-screen');
+const statusEl = document.getElementById('status-overlay');
+const roundEl = document.getElementById('round-num');
+const scoreEl = document.getElementById('total-score');
+const finalScoreEl = document.getElementById('final-score');
+
+let currentRound = 1;
+let totalScore = 0;
+let isPlaying = false;
+
+// 影像差異對比變數
+let baseFrameData = null;      // 基準背景照片
+let previousFrameData = null;  // 上一幀照片 (用於動態比對)
+let gameState = 'IDLE';        // IDLE | COUNTDOWN | WAITING_THROW | EVALUATING
+let stableFramesCount = 0;     // 停穩幀數
+let throwTimeoutTimer = null;
+let lastHitPoint = null;       // 記錄落點位置紅點
+
+let particles = [];
+let floatingTexts = [];
+
+// 得分區域設定
+const targetZones = [
+    { radius: 40,  score: 50, color: 'rgba(255, 87, 34, 0.45)', stroke: '#ff5722' },
+    { radius: 90,  score: 20, color: 'rgba(255, 193, 7, 0.35)', stroke: '#ffc107' },
+    { radius: 150, score: 10, color: 'rgba(76, 175, 80, 0.25)', stroke: '#4caf50' }
+];
+const center = { x: 320, y: 240 };
+
+// 音效系統
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(type) {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+
+    if (type === 'hit') {
+        osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+    } else if (type === 'miss') {
+        osc.frequency.setValueAtTime(220, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(110, audioCtx.currentTime + 0.4);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.4);
+    } else if (type === 'beep') {
+        osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+    }
+}
+
+// 啟動後置鏡頭
+async function initCamera() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { exact: "environment" }, width: 640, height: 480 }
+        });
+        video.srcObject = stream;
+    } catch (e) {
+        console.warn("改用預設鏡頭:", e);
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 640, height: 480 }
+        });
+        video.srcObject = stream;
+    }
+    return new Promise(resolve => video.onloadedmetadata = resolve);
+}
+
+// 遊戲畫面渲染主循環
+function gameLoop() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (isPlaying) {
+        // 畫 AR 得分圓環
+        targetZones.slice().reverse().forEach(z => {
+            ctx.beginPath();
+            ctx.arc(center.x, center.y, z.radius, 0, Math.PI * 2);
+            ctx.fillStyle = z.color; ctx.fill();
+            ctx.lineWidth = 3; ctx.strokeStyle = z.stroke; ctx.stroke();
+            
+            ctx.fillStyle = z.stroke;
+            ctx.font = 'bold 14px Arial';
+            ctx.fillText(`${z.score}分`, center.x - 12, center.y - z.radius + 18);
+        });
+
+        // 畫出系統感應到的落點紅點標記
+        if (lastHitPoint) {
+            ctx.beginPath();
+            ctx.arc(lastHitPoint.x, lastHitPoint.y, 8, 0, Math.PI * 2);
+            ctx.fillStyle = '#ff0055';
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#ffffff';
+            ctx.stroke();
+        }
+
+        // 當等待拋出時，進行動態監測
+        if (gameState === 'WAITING_THROW') {
+            monitorMotionAndStability();
+        }
+    }
+
+    // 粒子特效
+    particles.forEach((p, i) => {
+        p.x += p.vx; p.y += p.vy; p.life--;
+        ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = p.color; ctx.fill();
+        if (p.life <= 0) particles.splice(i, 1);
+    });
+
+    // 浮動分數文字
+    floatingTexts.forEach((ft, i) => {
+        ft.y += ft.vy; ft.life--;
+        ctx.fillStyle = ft.color;
+        ctx.font = 'bold 24px Arial';
+        ctx.fillText(ft.text, ft.x - 40, ft.y);
+        if (ft.life <= 0) floatingTexts.splice(i, 1);
+    });
+
+    requestAnimationFrame(gameLoop);
+}
+
+// 動態與靜止偵測 (優化靈敏度)
+function monitorMotionAndStability() {
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = 640; tempCanvas.height = 480;
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.drawImage(video, 0, 0, 640, 480);
+    const currentFrameData = tempCtx.getImageData(0, 0, 640, 480).data;
+
+    if (!previousFrameData) {
+        previousFrameData = currentFrameData;
+        return;
+    }
+
+    let frameMotion = 0;
+    let bgDifference = 0;
+
+    for (let i = 0; i < currentFrameData.length; i += 16) { // 每隔 4 像素採樣
+        const diffMotion = Math.abs(currentFrameData[i] - previousFrameData[i]) +
+                           Math.abs(currentFrameData[i+1] - previousFrameData[i+1]) +
+                           Math.abs(currentFrameData[i+2] - previousFrameData[i+2]);
+        if (diffMotion > 60) frameMotion++; // 降低動態門檻
+
+        const diffBG = Math.abs(currentFrameData[i] - baseFrameData[i]) +
+                       Math.abs(currentFrameData[i+1] - baseFrameData[i+1]) +
+                       Math.abs(currentFrameData[i+2] - baseFrameData[i+2]);
+        if (diffBG > 50) bgDifference++; // 降低背景差異門檻
+    }
+
+    previousFrameData = currentFrameData;
+
+    // 當檢測到有新物件且動態趨於平靜，連續 5 幀 (~0.15秒) 即可觸發
+    if (bgDifference >= 4 && frameMotion < 8) {
+        stableFramesCount++;
+        if (stableFramesCount >= 5) {
+            gameState = 'EVALUATING';
+            clearTimeout(throwTimeoutTimer);
+            statusEl.innerText = "判斷中...";
+            setTimeout(() => evaluateThrow(currentFrameData), 200);
+        }
+    } else {
+        stableFramesCount = 0;
+    }
+}
+
+// 開始遊戲
+async function startGame() {
+    startScreen.style.display = 'none';
+    endScreen.style.display = 'none';
+    currentRound = 1;
+    totalScore = 0;
+    lastHitPoint = null;
+    roundEl.innerText = currentRound;
+    scoreEl.innerText = totalScore;
+    isPlaying = true;
+
+    startNextRound();
+}
+
+// 新一輪流程
+function startNextRound() {
+    roundEl.innerText = currentRound;
+    statusEl.innerText = "準備背景...";
+    gameState = 'COUNTDOWN';
+    lastHitPoint = null;
+
+    setTimeout(() => {
+        captureBaseFrame(); // 拍攝乾淨背景照片
+        runCountdown(3, () => {
+            statusEl.innerText = "請拋出！";
+            gameState = 'WAITING_THROW';
+            stableFramesCount = 0;
+            previousFrameData = null;
+
+            // 超時保護：5 秒未拋出則提示超時
+            throwTimeoutTimer = setTimeout(() => {
+                if (gameState === 'WAITING_THROW') {
+                    gameState = 'EVALUATING';
+                    statusEl.innerText = "未檢測到拋出！";
+                    playSound('miss');
+                    finishRound();
+                }
+            }, 5000);
+        });
+    }, 1000);
+}
+
+// 倒數 3 秒
+function runCountdown(seconds, onComplete) {
+    let count = seconds;
+    statusEl.innerText = count;
+    playSound('beep');
+
+    const timer = setInterval(() => {
+        count--;
+        if (count > 0) {
+            statusEl.innerText = count;
+            playSound('beep');
+        } else {
+            clearInterval(timer);
+            statusEl.innerText = "";
+            onComplete();
+        }
+    }, 1000);
+}
+
+// 拍攝背景基準照片
+function captureBaseFrame() {
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = 640; tempCanvas.height = 480;
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.drawImage(video, 0, 0, 640, 480);
+    baseFrameData = tempCtx.getImageData(0, 0, 640, 480).data;
+}
+
+// 像素對比與得分計算
+function evaluateThrow(currentFrameData) {
+    statusEl.innerText = "";
+    let totalX = 0, totalY = 0, diffPixelCount = 0;
+
+    for (let y = 0; y < 480; y += 4) {
+        for (let x = 0; x < 640; x += 4) {
+            const idx = (y * 640 + x) * 4;
+            const rDiff = Math.abs(currentFrameData[idx] - baseFrameData[idx]);
+            const gDiff = Math.abs(currentFrameData[idx+1] - baseFrameData[idx+1]);
+            const bDiff = Math.abs(currentFrameData[idx+2] - baseFrameData[idx+2]);
+
+            // 超高敏感度：色差總和門檻降到 50
+            if (rDiff + gDiff + bDiff > 50) {
+                totalX += x; totalY += y;
+                diffPixelCount++;
+            }
+        }
+    }
+
+    // 只要有 4 個採樣像素變動即判定為新物件
+    if (diffPixelCount >= 4) {
+        const avgX = totalX / diffPixelCount;
+        const avgY = totalY / diffPixelCount;
+        lastHitPoint = { x: avgX, y: avgY }; // 記錄並顯示紅點落點
+        processScore(avgX, avgY);
+    } else {
+        playSound('miss');
+        floatingTexts.push({ text: '未檢測到落點！', x: center.x, y: center.y, vy: -1.5, life: 50, color: '#ff9800' });
+        finishRound();
+    }
+}
+
+// 計算得分與播放效果
+function processScore(x, y) {
+    const dist = Math.hypot(x - center.x, y - center.y);
+    let roundScore = 0;
+    let hitZone = null;
+
+    for (let zone of targetZones) {
+        if (dist <= zone.radius) {
+            roundScore = zone.score;
+            hitZone = zone;
+            break;
+        }
+    }
+
+    if (roundScore > 0) {
+        totalScore += roundScore;
+        scoreEl.innerText = totalScore;
+        playSound('hit');
+
+        for (let i = 0; i < 25; i++) {
+            particles.push({
+                x, y,
+                vx: (Math.random() - 0.5) * 8,
+                vy: (Math.random() - 0.5) * 8,
+                life: 35, color: hitZone.stroke
+            });
+        }
+        floatingTexts.push({ text: `+${roundScore}分 中標！`, x, y, vy: -1.5, life: 50, color: '#ffeb3b' });
+    } else {
+        playSound('miss');
+        floatingTexts.push({ text: '未命中得分區！', x, y, vy: -1.5, life: 50, color: '#ff5722' });
+    }
+
+    finishRound();
+}
+
+// 結算與下一球
+function finishRound() {
+    setTimeout(() => {
+        if (currentRound < 3) {
+            currentRound++;
+            startNextRound();
+        } else {
+            isPlaying = false;
+            finalScoreEl.innerText = totalScore;
+            endScreen.style.display = 'flex';
+        }
+    }, 2500);
+}
+
+// 網頁載入後啟動
+window.onload = async () => {
+    await initCamera();
+    gameLoop();
+};
+</script>
+</body>
+  </html>
+  
