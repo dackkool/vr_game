@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR 歡樂天地擲彩虹 🌈</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; padding: 0;
+            background-color: #121212;
+            color: #ffffff;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            min-height: 100vh;
+        }
+        #game-container {
+            position: relative;
+            width: 640px; height: 480px;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            background: #000;
+        }
+        video, canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 640px; height: 480px;
+            transform: scaleX(1);
+        }
+        .overlay-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            z-index: 20; text-align: center; padding: 20px;
+        }
+        .btn {
+            background: #ff0055; color: #fff;
+            border: none; padding: 12px 32px;
+            font-size: 20px; font-weight: bold;
+            border-radius: 50px; cursor: pointer;
+            box-shadow: 0 4px 15px rgba(255, 0, 85, 0.4);
+            transition: transform 0.2s;
+        }
+        .btn:hover { transform: scale(1.05); }
+        
+        #hud-board {
+            position: absolute;
+            top: 15px; left: 0; width: 100%;
+            display: flex; justify-content: space-between;
+            padding: 0 20px;
+            font-size: 22px; font-weight: bold;
+            color: #ffeb3b;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            z-index: 10;
+        }
+        #status-overlay {
+            position: absolute;
+            top: 40%; left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 44px; font-weight: 900;
+            color: #00e676; text-shadow: 0 0 20px rgba(0,230,118,0.8);
+            z-index: 12; pointer-events: none; text-align: center;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="hud-board">
+            <div>第 <span id="round-num">1</span> / 5 金幣</div>
+            <div>總分: <span id="total-score">0</span></div>
+        </div>
+
+        <div id="status-overlay"></div>
+
+        <video id="webcam" autoplay playsinline muted></video>
+        <canvas id="arCanvas" width="640" height="480"></canvas>
+
+        <div id="start-screen" class="overlay-screen">
+            <h1 style="color: #ffeb3b; margin-bottom: 10px;">🌈 歡樂天地 AR 擲彩虹</h1>
+            <p style="font-size: 15px; line-height: 1.6; color: #ddd; max-width: 480px; margin-bottom: 25px;">
+                【遊戲規則】<br>
+                1. 推薦使用 <b>5元 / 10元硬幣</b> 投擲！<br>
+                2. 倒數 <b>3, 2, 1</b> 保持桌面乾淨，顯示<b>「請擲硬幣！」</b>後才投擲。<br>
+                3. <b>切記：硬幣不能壓到彩虹黑線/白線（壓線不中）！</b>
+            </p>
+            <button class="btn" onclick="startGame()">開始擲彩虹 🪙</button>
+        </div>
+
+        <div id="end-screen" class="overlay-screen" style="display: none;">
+            <h1 style="color: #00e676;">🏆 彩虹挑戰結束！</h1>
+            <p style="font-size: 24px; margin: 15px 0;">最終獲得彩虹積分：<span id="final-score" style="color: #ffeb3b; font-weight: bold;">0</span> 分</p>
+            <button class="btn" onclick="startGame()">再擲一次 🔄</button>
+        </div>
+    </div>
+
+<script>
+const video = document.getElementById('webcam');
+const canvas = document.getElementById('arCanvas');
+const ctx = canvas.getContext('2d');
+
+const startScreen = document.getElementById('start-screen');
+const endScreen = document.getElementById('end-screen');
+const statusEl = document.getElementById('status-overlay');
+const roundEl = document.getElementById('round-num');
+const scoreEl = document.getElementById('total-score');
+const finalScoreEl = document.getElementById('final-score');
+
+let currentRound = 1;
+let totalScore = 0;
+let isPlaying = false;
+
+let baseFrameData = null;
+let previousFrameData = null;
+let gameState = 'IDLE';
+let stableFramesCount = 0;
+let throwTimeoutTimer = null;
+let lastHitPoint = null;
+
+let particles = [];
+let floatingTexts = [];
+
+// 彩虹拱形區域設定 (由內到外)
+const rainbowCenter = { x: 320, y: 440 }; // 彩虹發散中心 (底部中央)
+const rainbowBands = [
+    { innerR: 80,  outerR: 130, score: 100, name: '大獎藍彩 Rainbow Blue', color: '#2196f3' },
+    { innerR: 140, outerR: 190, score: 50,  name: '二獎紅彩 Rainbow Red',  color: '#f44336' },
+    { innerR: 200, outerR: 260, score: 20,  name: '三獎黃彩 Rainbow Yellow',color: '#ffeb3b' },
+    { innerR: 270, outerR: 340, score: 10,  name: '普獎綠彩 Rainbow Green', color: '#4caf50' }
+];
+const borderLineWidth = 6; // 黑白分隔線寬度 (用於判定壓線)
+
+// Web Audio API
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(type) {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+
+    if (type === 'jackpot') {
+        osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+        osc.frequency.exponentialRampToValueAtTime(1046.50, audioCtx.currentTime + 0.5); // C6
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.5);
+    } else if (type === 'hit') {
+        osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+    } else if (type === 'line') { // 壓線音效
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(180, audioCtx.currentTime);
+        osc.frequency.linearRampToValueAtTime(100, audioCtx.currentTime + 0.4);
+        gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.4);
+    } else if (type === 'beep') {
+        osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+    }
+}
+
+async function initCamera() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { exact: "environment" }, width: 640, height: 480 }
+        });
+        video.srcObject = stream;
+    } catch (e) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 640, height: 480 }
+        });
+        video.srcObject = stream;
+    }
+    return new Promise(resolve => video.onloadedmetadata = resolve);
+}
+
+// 繪製彩虹拱門
+function drawRainbowTarget() {
+    rainbowBands.forEach(band => {
+        ctx.beginPath();
+        ctx.arc(rainbowCenter.x, rainbowCenter.y, band.outerR, Math.PI, 0, false);
+        ctx.arc(rainbowCenter.x, rainbowCenter.y, band.innerR, 0, Math.PI, true);
+        ctx.closePath();
+
+        ctx.fillStyle = band.color + '55'; // 帶有半透明度
+        ctx.fill();
+
+        // 黑色分隔線 (壓線死穴區域)
+        ctx.lineWidth = borderLineWidth;
+        ctx.strokeStyle = '#000000';
+        ctx.stroke();
+
+        // 標示分數
+        const midR = (band.innerR + band.outerR) / 2;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 16px Arial';
+        ctx.shadowColor = 'black'; ctx.shadowBlur = 4;
+        ctx.fillText(`${band.score}分`, rainbowCenter.x - 18, rainbowCenter.y - midR);
+        ctx.shadowBlur = 0;
+    });
+}
+
+function gameLoop() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (isPlaying) {
+        drawRainbowTarget();
+
+        if (lastHitPoint) {
+            // 畫出硬幣的半徑範圍
+            ctx.beginPath();
+            ctx.arc(lastHitPoint.x, lastHitPoint.y, 12, 0, Math.PI * 2);
+            ctx.fillStyle = lastHitPoint.isLine ? '#ff1744' : '#00e676';
+            ctx.fill();
+            ctx.lineWidth = 3; ctx.strokeStyle = '#ffffff'; ctx.stroke();
+        }
+
+        if (gameState === 'WAITING_THROW') {
+            monitorMotionAndStability();
+        }
+    }
+
+    // 粒子與特效
+    particles.forEach((p, i) => {
+        p.x += p.vx; p.y += p.vy; p.life--;
+        ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = p.color; ctx.fill();
+        if (p.life <= 0) particles.splice(i, 1);
+    });
+
+    floatingTexts.forEach((ft, i) => {
+        ft.y += ft.vy; ft.life--;
+        ctx.fillStyle = ft.color;
+        ctx.font = 'bold 26px Arial';
+        ctx.fillText(ft.text, ft.x - 50, ft.y);
+        if (ft.life <= 0) floatingTexts.splice(i, 1);
+    });
+
+    requestAnimationFrame(gameLoop);
+}
+
+function monitorMotionAndStability() {
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = 640; tempCanvas.height = 480;
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.drawImage(video, 0, 0, 640, 480);
+    const currentFrameData = tempCtx.getImageData(0, 0, 640, 480).data;
+
+    if (!previousFrameData) {
+        previousFrameData = currentFrameData;
+        return;
+    }
+
+    let frameMotion = 0;
+    let bgDifference = 0;
+
+    for (let i = 0; i < currentFrameData.length; i += 16) {
+        const diffMotion = Math.abs(currentFrameData[i] - previousFrameData[i]) +
+                           Math.abs(currentFrameData[i+1] - previousFrameData[i+1]) +
+                           Math.abs(currentFrameData[i+2] - previousFrameData[i+2]);
+        if (diffMotion > 60) frameMotion++;
+
+        const diffBG = Math.abs(currentFrameData[i] - baseFrameData[i]) +
+                       Math.abs(currentFrameData[i+1] - baseFrameData[i+1]) +
+                       Math.abs(currentFrameData[i+2] - baseFrameData[i+2]);
+        if (diffBG > 50) bgDifference++;
+    }
+
+    previousFrameData = currentFrameData;
+
+    if (bgDifference >= 4 && frameMotion < 8) {
+        stableFramesCount++;
+        if (stableFramesCount >= 5) {
+            gameState = 'EVALUATING';
+            clearTimeout(throwTimeoutTimer);
+            statusEl.innerText = "評判判斷中...";
+            setTimeout(() => evaluateThrow(currentFrameData), 200);
+        }
+    } else {
+        stableFramesCount = 0;
+    }
+}
+
+async function startGame() {
+    startScreen.style.display = 'none';
+    endScreen.style.display = 'none';
+    currentRound = 1;
+    totalScore = 0;
+    lastHitPoint = null;
+    roundEl.innerText = currentRound;
+    scoreEl.innerText = totalScore;
+    isPlaying = true;
+
+    startNextRound();
+}
+
+function startNextRound() {
+    roundEl.innerText = currentRound;
+    statusEl.innerText = "拍攝彩虹背景...";
+    gameState = 'COUNTDOWN';
+    lastHitPoint = null;
+
+    setTimeout(() => {
+        captureBaseFrame();
+        runCountdown(3, () => {
+            statusEl.innerText = "請擲硬幣！🪙";
+            gameState = 'WAITING_THROW';
+            stableFramesCount = 0;
+            previousFrameData = null;
+
+            throwTimeoutTimer = setTimeout(() => {
+                if (gameState === 'WAITING_THROW') {
+                    gameState = 'EVALUATING';
+                    statusEl.innerText = "未擲出硬幣！";
+                    playSound('line');
+                    finishRound();
+                }
+            }, 5000);
+        });
+    }, 1000);
+}
+
+function runCountdown(seconds, onComplete) {
+    let count = seconds;
+    statusEl.innerText = count;
+    playSound('beep');
+
+    const timer = setInterval(() => {
+        count--;
+        if (count > 0) {
+            statusEl.innerText = count;
+            playSound('beep');
+        } else {
+            clearInterval(timer);
+            statusEl.innerText = "";
+            onComplete();
+        }
+    }, 1000);
+}
+
+function captureBaseFrame() {
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = 640; tempCanvas.height = 480;
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.drawImage(video, 0, 0, 640, 480);
+    baseFrameData = tempCtx.getImageData(0, 0, 640, 480).data;
+}
+
+function evaluateThrow(currentFrameData) {
+    statusEl.innerText = "";
+    let totalX = 0, totalY = 0, diffPixelCount = 0;
+
+    for (let y = 0; y < 480; y += 4) {
+        for (let x = 0; x < 640; x += 4) {
+            const idx = (y * 640 + x) * 4;
+            const rDiff = Math.abs(currentFrameData[idx] - baseFrameData[idx]);
+            const gDiff = Math.abs(currentFrameData[idx+1] - baseFrameData[idx+1]);
+            const bDiff = Math.abs(currentFrameData[idx+2] - baseFrameData[idx+2]);
+
+            if (rDiff + gDiff + bDiff > 50) {
+                totalX += x; totalY += y;
+                diffPixelCount++;
+            }
+        }
+    }
+
+    if (diffPixelCount >= 4) {
+        const avgX = totalX / diffPixelCount;
+        const avgY = totalY / diffPixelCount;
+        evaluateRainbowHit(avgX, avgY);
+    } else {
+        playSound('line');
+        floatingTexts.push({ text: '未感應到硬幣！', x: 320, y: 240, vy: -1.5, life: 50, color: '#ff9800' });
+        finishRound();
+    }
+}
+
+// 擲彩虹核心：判定「壓線」與「完美的彩虹區域」
+function evaluateRainbowHit(x, y) {
+    const coinRadius = 12; // 假設硬幣在 640x480 下的半徑
+    const distToCenter = Math.hypot(x - rainbowCenter.x, y - rainbowCenter.y);
+
+    // 檢查硬幣的近端與遠端是否壓到任何邊界線 (Distance to inner/outer radius)
+    let hitBand = null;
+    let isTouchLine = false;
+
+    for (let band of rainbowBands) {
+        // 判斷硬幣中心是否在彩虹環內
+        if (distToCenter >= band.innerR && distToCenter <= band.outerR) {
+            hitBand = band;
+            
+            // 壓線判定：硬幣的邊緣 (dist - radius 或 dist + radius) 碰到了黑線區域
+            if ((distToCenter - coinRadius < band.innerR + borderLineWidth/2) || 
+                (distToCenter + coinRadius > band.outerR - borderLineWidth/2)) {
+                isTouchLine = true;
+            }
+            break;
+        }
+    }
+
+    lastHitPoint = { x, y, isLine: isTouchLine };
+
+    if (!hitBand) {
+        // 落在彩虹區域之外
+        playSound('line');
+        floatingTexts.push({ text: '出界！沒中彩虹 ❌', x, y, vy: -1.5, life: 50, color: '#ff5722' });
+    } else if (isTouchLine) {
+        // 壓線！（歡樂天地精髓）
+        playSound('line');
+        floatingTexts.push({ text: '慘！壓線了！⚠️', x, y, vy: -1.5, life: 50, color: '#ff9800' });
+    } else {
+        // 完美中獎！
+        totalScore += hitBand.score;
+        scoreEl.innerText = totalScore;
+        
+        if (hitBand.score >= 50) {
+            playSound('jackpot');
+        } else {
+            playSound('hit');
+        }
+
+        // 噴發彩虹粒子
+        for (let i = 0; i < 30; i++) {
+            particles.push({
+                x, y,
+                vx: (Math.random() - 0.5) * 10,
+                vy: (Math.random() - 0.5) * 10,
+                life: 40, color: hitBand.color
+            });
+        }
+        floatingTexts.push({ text: `中！${hitBand.score}分 🎉`, x, y, vy: -1.5, life: 50, color: '#00e676' });
+    }
+
+    finishRound();
+}
+
+function finishRound() {
+    setTimeout(() => {
+        if (currentRound < 5) { // 玩 5 球彩虹
+            currentRound++;
+            startNextRound();
+        } else {
+            isPlaying = false;
+            finalScoreEl.innerText = totalScore;
+            endScreen.style.display = 'flex';
+        }
+    }, 2500);
+}
+
+window.onload = async () => {
+    await initCamera();
+    gameLoop();
+};
+</script>
+</body>
+</html>
+  
