@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>WebXR 3D 擲彩虹 (終極排錯版) 🌈</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; overflow: hidden;
+            font-family: Arial, sans-serif;
+            background-color: #000;
+        }
+        #webcam-bg {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            object-fit: cover; z-index: 1; display: none;
+        }
+        #three-canvas {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%; z-index: 2;
+        }
+        #overlay-ui {
+            position: absolute; top: 15px; left: 15px; right: 15px;
+            display: flex; justify-content: space-between;
+            color: #fff; font-size: 20px; font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            z-index: 10; pointer-events: none;
+        }
+        #msg-box {
+            position: absolute; bottom: 90px; width: 100%;
+            text-align: center; color: #ffeb3b; font-size: 18px; font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            z-index: 10; pointer-events: none; padding: 0 15px;
+        }
+        #start-ar-btn {
+            position: absolute; bottom: 25px; left: 50%;
+            transform: translateX(-50%);
+            padding: 14px 32px; font-size: 20px; font-weight: bold;
+            background: #ff0055; color: #ffffff;
+            border: none; border-radius: 50px;
+            box-shadow: 0 4px 15px rgba(255, 0, 85, 0.6);
+            z-index: 20; cursor: pointer; display: block;
+        }
+        #err-log {
+            position: absolute; top: 60px; left: 10px; right: 10px;
+            color: #ff3333; background: rgba(0,0,0,0.8);
+            font-size: 14px; padding: 10px; border-radius: 8px;
+            z-index: 30; display: none; word-break: break-all;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <video id="webcam-bg" autoplay playsinline muted></video>
+    <div id="three-canvas"></div>
+
+    <div id="overlay-ui">
+        <div>金幣：<span id="coins-left">5</span> / 5</div>
+        <div>得分：<span id="score">0</span></div>
+    </div>
+    
+    <div id="msg-box">請點擊下方按鈕啟動 AR 鏡頭 📷</div>
+    <div id="err-log"></div>
+
+    <button id="start-ar-btn">開啟 AR 鏡頭 🚀</button>
+
+<script>
+let camera, scene, renderer, container;
+let reticle, rainbowGroup;
+let hitTestSource = null;
+let hitTestSourceRequested = false;
+let rainbowPlaced = false;
+let coinsLeft = 5;
+let score = 0;
+
+const rainbowBands = [
+    { innerR: 0.10, outerR: 0.18, score: 100, color: 0x2196f3 },
+    { innerR: 0.19, outerR: 0.27, score: 50,  color: 0xf44336 },
+    { innerR: 0.28, outerR: 0.36, score: 20,  color: 0xffeb3b },
+    { innerR: 0.37, outerR: 0.46, score: 10,  color: 0x4caf50 }
+];
+const borderLineWidth = 0.008;
+
+init();
+
+function init() {
+    container = document.getElementById('three-canvas');
+
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+    const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+    light.position.set(0.5, 1, 0.25);
+    scene.add(light);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x000000, 0);
+    renderer.xr.enabled = true;
+    container.appendChild(renderer.domElement);
+
+    reticle = new THREE.Mesh(
+        new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: 0x00e676 })
+    );
+    reticle.matrixAutoUpdate = false;
+    reticle.visible = false;
+    scene.add(reticle);
+
+    document.getElementById('start-ar-btn').addEventListener('click', onArButtonClick);
+    window.addEventListener('resize', onWindowResize);
+    window.addEventListener('click', onGlobalClick);
+}
+
+function showErr(msg) {
+    const el = document.getElementById('err-log');
+    el.style.display = 'block';
+    el.innerText = msg;
+}
+
+// 點擊按鈕啟動 AR (核心邏輯)
+function onArButtonClick() {
+    const btn = document.getElementById('start-ar-btn');
+    const msgBox = document.getElementById('msg-box');
+
+    // 檢查環境
+    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+        showErr("⚠️ 失敗原因：WebXR 必須在 HTTPS 網域執行 (例如 https://your-site.github.io)");
+        startFallbackCamera();
+        return;
+    }
+
+    if (!navigator.xr) {
+        showErr("⚠️ 失敗原因：瀏覽器不支援 WebXR (iPhone 請在 App Store 下載 WebXR Viewer 開啟)");
+        startFallbackCamera();
+        return;
+    }
+
+    // 嘗試啟動原生 WebXR Session
+    navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['hit-test']
+    }).then((session) => {
+        btn.style.display = 'none';
+        msgBox.innerText = "WebXR 已啟動！請將鏡頭緩慢對準地面掃瞄";
+
+        renderer.xr.setSession(session);
+        
+        session.addEventListener('end', () => {
+            btn.style.display = 'block';
+            msgBox.innerText = "AR 已終止";
+        });
+
+        renderer.setAnimationLoop(renderXR);
+    }).catch((err) => {
+        // 如果 requestSession 被拒絕，捕捉錯誤並啟動備用相機模式
+        showErr("⚠️ WebXR 啟動失敗：" + err.message + "\n自動為你切換至通用鏡頭模式。");
+        startFallbackCamera();
+    });
+}
+
+// 備用方案：普通相機投影 (iOS / 非 WebXR 環境)
+async function startFallbackCamera() {
+    const btn = document.getElementById('start-ar-btn');
+    const video = document.getElementById('webcam-bg');
+    const msgBox = document.getElementById('msg-box');
+
+    btn.style.display = 'none';
+    video.style.display = 'block';
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { exact: "environment" } }
+        });
+        video.srcObject = stream;
+    } catch (e) {
+        try {
+            const stream =按了按鈕沒有反應，通常是因為 **WebXR 啟動非同步請求（`requestSession`）時被瀏覽器阻擋**，或是**沒有把 WebGL 的 Render Loop 綁定到 WebXR 頁面繪製上**。
+
+當你點擊自訂按鈕時，瀏覽器要求 `navigator.xr.requestSession` **必須由使用者點擊事件（User Gesture）直接觸發**，且若裡面包含非同步 `await` 延遲，部分瀏覽器會判定為非安全操作而直接忽視。
+
+以下是修復此問題的完整單一 HTML 檔案，重新設計了點擊監聽機制與相機備用方案：
+
+```html
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>WebXR 3D 擲彩虹 🌈</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { overflow: hidden; background: #000; font-family: sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; }
+        #overlay-ui {
+            position: absolute; top: 15px; left: 15px; right: 15px;
+            display: flex; justify-content: space-between;
+            color: #fff; font-size: 20px; font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8); z-index: 10; pointer-events: none;
+        }
+        #msg-box {
+            position: absolute; bottom: 100px; width: 100%; text-align: center;
+            color: #ffeb3b; font-size: 18px; font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8); z-index: 10; pointer-events: none; padding: 0 15px;
+        }
+        #start-btn {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            padding: 14px 32px; font-size: 18px; font-weight: bold; color: #fff;
+            background: #ff0055; border: none; border-radius: 50px;
+            box-shadow: 0 4px 15px rgba(255, 0, 85, 0.6); z-index: 20; cursor: pointer;
+        }
+    </style>
+    <script src="[https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js](https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js)"></script>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="overlay-ui">
+        <div>金幣：<span id="coins-left">5</span> / 5</div>
+        <div>得分：<span id="score">0</span></div>
+    </div>
+    <div id="msg-box">請點擊下方按鈕啟動 AR 模式 📷</div>
+    <button id="start-btn">開啟 AR 鏡頭 🚀</button>
+
+<script>
+let camera, scene, renderer, container;
+let reticle, rainbowGroup;
+let hitTestSource = null;
+let hitTestSourceRequested = false;
+let rainbowPlaced = false;
+let coinsLeft = 5;
+let score = 0;
+
+const rainbowBands = [
+    { innerR: 0.10, outerR: 0.18, score: 100, color: 0x2196f3 },
+    { innerR: 0.19, outerR: 0.27, score: 50,  color: 0xf44336 },
+    { innerR: 0.28, outerR: 0.36, score: 20,  color: 0xffeb3b },
+    { innerR: 0.37, outerR: 0.46, score: 10,  color: 0x4caf50 }
+];
+const borderLineWidth = 0.008;
+
+init();
+
+function init() {
+    container = document.getElementById('canvas-container');
+
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+    const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+    light.position.set(0.5, 1, 0.25);
+    scene.add(light);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x000000, 0);
+    renderer.xr.enabled = true;
+    container.appendChild(renderer.domElement);
+
+    reticle = new THREE.Mesh(
+        new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: 0x00e676 })
+    );
+    reticle.matrixAutoUpdate = false;
+    reticle.visible = false;
+    scene.add(reticle);
+
+    document.getElementById('start-btn').addEventListener('click', onStartButtonClick);
+    window.addEventListener('resize', onWindowResize);
+}
+
+function onStartButtonClick() {
+    const btn = document.getElementById('start-btn');
+    const msgBox = document.getElementById('msg-box');
+
+    if (!navigator.xr) {
+        msgBox.innerText = "⚠️ 瀏覽器不支援 WebXR（iPhone 請用 WebXR Viewer 開啟）";
+        return;
+    }
+
+    navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+        if (supported) {
+            // 同步直接發起 session 請求，避免被瀏覽器阻擋
+            navigator.xr.requestSession('immersive-ar', {
+                requiredFeatures: ['hit-test'],
+                optionalFeatures: ['dom-overlay'],
+                domOverlay: { root: document.body }
+            }).then(onSessionStarted).catch((err) => {
+                msgBox.innerText = "啟動失敗: " + err.message;
+            });
+        } else {
+            msgBox.innerText = "⚠️ 設備不支援 immersive-ar，請確保已安裝 ARCore";
+        }
+    });
+}
+
+function onSessionStarted(session) {
+    const btn = document.getElementById('start-btn');
+    btn.style.display = 'none';
+    document.getElementById('msg-box').innerText = "已連線！請緩慢掃瞄桌面/地面...";
+
+    renderer.xr.setSession(session);
+
+    // 監聽畫面的觸控點擊事件（用於放置彩虹與擲硬幣）
+    session.addEventListener('select', onXRSelect);
+
+    session.addEventListener('end', () => {
+        btn.style.display = 'block';
+        document.getElementById('msg-box').innerText = "AR 已結束";
+        hitTestSource = null;
+        hitTestSourceRequested = false;
+    });
+
+    // 開始 WebXR 渲染循環
+    renderer.setAnimationLoop(render);
+}
+
+function create3DRainbow() {
+    const group = new THREE.Group();
+    rainbowBands.forEach(band => {
+        const shape = new THREE.Shape();
+        shape.absarc(0, 0, band.outerR, 0, Math.PI, false);
+        shape.absarc(0, 0, band.innerR, Math.PI, 0, true);
+
+        const geometry = new THREE.ShapeGeometry(shape);
+        geometry.rotateX(-Math.PI / 2);
+
+        const material = new THREE.MeshBasicMaterial({
+            color: band.color, side: THREE.DoubleSide, transparent: true, opacity: 0.85
+        });
+        group.add(new THREE.Mesh(geometry, material));
+
+        const outerLineGeom = new THREE.RingGeometry(band.outerR - borderLineWidth/2, band.outerR + borderLineWidth/2, 64);
+        outerLineGeom.rotateX(-Math.PI / 2);
+        group.add(new THREE.Mesh(outerLineGeom, new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide })));
+    });
+    return group;
+}
+
+function onXRSelect() {
+    const msgBox = document.getElementById('msg-box');
+
+    if (!rainbowPlaced && reticle.visible) {
+        rainbowGroup = create3DRainbow();
+        rainbowGroup.position.setFromMatrixPosition(reticle.matrix);
+        
+        const headPos = new THREE.Vector3();
+        camera.getWorldPosition(headPos);
+        rainbowGroup.lookAt(headPos.x, rainbowGroup.position.y, headPos.z);
+
+        scene.add(rainbowGroup);
+        rainbowPlaced = true;
+        reticle.visible = false;
+        msgBox.innerText = "彩虹已固定！點擊螢幕擲硬幣 🪙";
+        return;
+    }
+
+    if (rainbowPlaced && coinsLeft > 0) {
+        throwCoin();
+    }
+}
+
+function throwCoin() {
+    coinsLeft--;
+    document.getElementById('coins-left').innerText = coinsLeft;
+
+    const coinGeom = new THREE.CylinderGeometry(0.0125, 0.0125, 0.003, 32);
+    const coinMat = new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.8, roughness: 0.2 });
+    const coin = new THREE.Mesh(coinGeom, coinMat);
+
+    const startPos = new THREE.Vector3();
+    camera.getWorldPosition(startPos);
+    coin.position.copy(startPos);
+    scene.add(coin);
+
+    const targetPos = new THREE.Vector3();
+    rainbowGroup.getWorldPosition(targetPos);
+    targetPos.x += (Math.random() - 0.5) * 0.3;
+    targetPos.z += (Math.random() - 0.5) * 0.3;
+
+    let progress = 0;
+    const throwInterval = setInterval(() => {
+        progress += 0.05;
+        coin.position.lerpVectors(startPos, targetPos, progress);
+        coin.position.y = THREE.MathUtils.lerp(startPos.y, targetPos.y, progress) + Math.sin(progress * Math.PI) * 0.15;
+        coin.rotation.x += 0.2;
+
+        if (progress >= 1) {
+            clearInterval(throwInterval);
+            coin.position.copy(targetPos);
+            coin.rotation.set(0, 0, 0);
+            evaluateXRScore(targetPos, coin);
+        }
+    }, 16);
+}
+
+function evaluateXRScore(coinWorldPos, coinMesh) {
+    const msgBox = document.getElementById('msg-box');
+    const rainbowWorldPos = new THREE.Vector3();
+    rainbowGroup.getWorldPosition(rainbowWorldPos);
+
+    const dx = coinWorldPos.x - rainbowWorldPos.x;
+    const dz = coinWorldPos.z - rainbowWorldPos.z;
+    const distToCenter = Math.hypot(dx, dz);
+
+    const coinRadius = 0.0125;
+    let hitBand = null;
+    let isTouchLine = false;
+
+    for (let band of rainbowBands) {
+        if (distToCenter >= band.innerR && distToCenter <= band.outerR) {
+            hitBand = band;
+            if ((distToCenter - coinRadius < band.innerR + borderLineWidth/2) || 
+                (distToCenter + coinRadius > band.outerR - borderLineWidth/2)) {
+                isTouchLine = true;
+            }
+            break;
+        }
+    }
+
+    if (!hitBand) {
+        msgBox.innerText = "出界！沒擲中彩虹 ❌";
+        coinMesh.material.color.setHex(0x555555);
+    } else if (isTouchLine) {
+        msgBox.innerText = "慘！壓線不中！⚠️";
+        coinMesh.material.color.setHex(0xff0000);
+    } else {
+        score += hitBand.score;
+        document.getElementById('score').innerText = score;
+        msgBox.innerText = `🎉 中獎！獲得 ${hitBand.score} 分！`;
+        coinMesh.material.color.setHex(0x00ff00);
+    }
+
+    if (coinsLeft === 0) {
+        setTimeout(() => {
+            msgBox.innerText = `🏆 遊戲結束！最終得分：${score} 分`;
+        }, 2000);
+    }
+}
+
+function render(timestamp, frame) {
+    if (frame) {
+        const referenceSpace = renderer.xr.getReferenceSpace();
+        const session = renderer.xr.getSession();
+
+        if (hitTestSourceRequested === false) {
+            session.requestReferenceSpace('viewer').then((viewerSpace) => {
+                session.requestHitTestSource({ space: viewerSpace }).then((source) => {
+                    hitTestSource = source;
+                });
+            });
+            session.addEventListener('end', () => {
+                hitTestSourceRequested = false;
+                hitTestSource = null;
+            });
+            hitTestSourceRequested = true;
+        }
+
+        if (hitTestSource && !rainbowPlaced) {
+            const hitTestResults = frame.getHitTestResults(hitTestSource);
+            if (hitTestResults.length > 0) {
+                const hit = hitTestResults[0];
+                const pose = hit.getPose(referenceSpace);
+
+                reticle.visible = true;
+                reticle.matrix.fromArray(pose.transform.matrix);
+                document.getElementById('msg-box').innerText = "已找到平面！點擊螢幕放置彩虹 🌈";
+            } else {
+                reticle.visible = false;
+                document.getElementById('msg-box').innerText = "尋找桌面中...請將鏡頭緩慢對準地面/桌面移動";
+            }
+        }
+    }
+
+    renderer.render(scene, camera);
+}
+
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+</script>
+</body>
+</html>
