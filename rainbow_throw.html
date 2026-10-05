@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>WebXR 3D 擲彩虹 (全相容版) 🌈</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; overflow: hidden;
+            font-family: Arial, sans-serif;
+            background-color: #000;
+        }
+        #webcam-bg {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            object-fit: cover; z-index: 1; display: none;
+        }
+        #three-canvas {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%; z-index: 2;
+        }
+        #overlay-ui {
+            position: absolute; top: 15px; left: 15px; right: 15px;
+            display: flex; justify-content: space-between;
+            color: #fff; font-size: 20px; font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            z-index: 10; pointer-events: none;
+        }
+        #msg-box {
+            position: absolute; bottom: 90px; width: 100%;
+            text-align: center; color: #ffeb3b; font-size: 20px; font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            z-index: 10; pointer-events: none; padding: 0 15px;
+        }
+        #custom-ar-btn {
+            position: absolute; bottom: 25px; left: 50%;
+            transform: translateX(-50%);
+            padding: 14px 32px; font-size: 20px; font-weight: bold;
+            background: #ff0055; color: #ffffff;
+            border: none; border-radius: 50px;
+            box-shadow: 0 4px 15px rgba(255, 0, 85, 0.6);
+            z-index: 20; cursor: pointer; display: block;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <video id="webcam-bg" autoplay playsinline muted></video>
+    <div id="three-canvas"></div>
+
+    <div id="overlay-ui">
+        <div>金幣：<span id="coins-left">5</span> / 5</div>
+        <div>得分：<span id="score">0</span></div>
+    </div>
+    <div id="msg-box">請點擊下方按鈕啟動 AR 模式 📷</div>
+
+    <button id="custom-ar-btn" onclick="handleARStart()">開啟 AR 鏡頭 🚀</button>
+
+<script>
+let camera, scene, renderer, container;
+let controller, reticle;
+let hitTestSource = null;
+let hitTestSourceRequested = false;
+
+let rainbowGroup = null;
+let rainbowPlaced = false;
+let coinsLeft = 5;
+let score = 0;
+let isWebXRMode = false;
+
+const rainbowBands = [
+    { innerR: 0.10, outerR: 0.18, score: 100, color: 0x2196f3 },
+    { innerR: 0.19, outerR: 0.27, score: 50,  color: 0xf44336 },
+    { innerR: 0.28, outerR: 0.36, score: 20,  color: 0xffeb3b },
+    { innerR: 0.37, outerR: 0.46, score: 10,  color: 0x4caf50 }
+];
+const borderLineWidth = 0.008;
+
+initThree();
+
+function initThree() {
+    container = document.getElementById('three-canvas');
+
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+    const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+    light.position.set(0.5, 1, 0.25);
+    scene.add(light);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x000000, 0);
+    renderer.xr.enabled = true;
+    container.appendChild(renderer.domElement);
+
+    reticle = new THREE.Mesh(
+        new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: 0x00e676 })
+    );
+    reticle.matrixAutoUpdate = false;
+    reticle.visible = false;
+    scene.add(reticle);
+
+    window.addEventListener('resize', onWindowResize);
+    window.addEventListener('click', onGlobalClick);
+}
+
+// 按鈕點擊事件：優先啟動 WebXR，若不支援則降級使用相機影片
+async function handleARStart() {
+    const btn = document.getElementById('custom-ar-btn');
+    btn.style.display = 'none';
+
+    if ('xr' in navigator && await navigator.xr.isSessionSupported('immersive-ar')) {
+        // 1. 原生 WebXR AR 模式
+        isWebXRMode = true;
+        const session = await navigator.xr.requestSession('immersive-ar', {
+            requiredFeatures: ['hit-test']
+        });
+        renderer.xr.setSession(session);
+        document.getElementById('msg-box').innerText = "WebXR 已啟動！請將鏡頭緩慢對準地面掃瞄";
+        
+        session.addEventListener('end', () => {
+            btn.style.display = 'block';
+            document.getElementById('msg-box').innerText = "AR 已經結束";
+        });
+        
+        renderer.setAnimationLoop(renderXR);
+    } else {
+        // 2. 備用方案：普通 2.5D 相機投影模式（適用於 iPhone / Safari / HTTP 環境）
+        isWebXRMode = false;
+        document.getElementById('msg-box').innerText = "啟動普通 AR 模式 (如在 iPhone 請使用)";
+        await startFallbackCamera();
+    }
+}
+
+// 相機備用串流 (iOS Safari / 無 WebXR 時運作)
+async function startFallbackCamera() {
+    const video = document.getElementById('webcam-bg');
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { exact: "environment" } }
+        });
+        video.srcObject = stream;
+    } catch (e) {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+在網頁中使用 WebXR API 時，如果頁面上完全沒有出現 **「START AR」** 的按鈕，這通常代表 **瀏覽器經檢測後，認定目前環境不支援 immersive-ar（實境 AR）模式**，因此 `ARButton.js` 選擇隱藏或並未把按鈕渲染出來。
+
+以下是導致按鈕沒有顯示的最常見原因與相對應的排查方法：
+
+---
+
+### 🔍 為什麼會沒有顯示 AR 按鈕？
+
+1. **使用了 iOS / iPhone 裝置（最常見原因）**：
+   * iOS 上的 Safari 及其他瀏覽器（包括 Chrome for iOS）預設**不支援** WebXR 規範。
+   * **解決方案**：iPhone / iPad 必須在 App Store 下載專用的 **WebXR Viewer** App，並在該 App 內開啟網頁網址。
+
+2. **網頁並未經由 HTTPS 安全協定載入**：
+   * WebXR 屬於高敏感度 API（涉及相機與空間感測），瀏覽器規定**必須在 `https://` 網址下運行**（或在電腦本地 `http://localhost`）。
+   * 如果使用 `http://192.168.x.x` 或直接雙擊打開本地 `file:///` HTML 檔案，WebXR 會被強制停用。
+   * **解決方案**：請將網頁部署至支援 HTTPS 的平台（如 GitHub Pages、Vercel），或在電腦上使用 `cloudflared` / `ngrok` 開啟 HTTPS 隧道。
+
+3. **Android 設備缺少 AR 核心套件**：
+   * 部分 Android 手機如果沒有安裝或更新 **Google Play Services for AR (ARCore)**，Chrome 就無法啟動 WebXR。
+   * **解決方案**：前往 Google Play 商店搜尋並安裝/更新 **Google Play Services for AR**。
+
+---
+
+### 🛠️ 解決方案：寫一個自訂按鈕（繞過套件限制）
+
+如果不依賴 `ARButton.js` 的預設邏輯，我們可以改用原生 JavaScript 來檢測 WebXR，並手動放置一個按鈕。這樣即使設備不支援，也能直接在畫面上印出具體的錯誤原因，而不是默默隱藏。
+
+你可以將原本的按鈕建立邏輯替換為以下程式碼：
+
+```html
+<button id="custom-ar-btn" style="
+    position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+    padding: 14px 28px; font-size: 18px; font-weight: bold; color: white;
+    background: #ff0055; border: none; border-radius: 30px; z-index: 999;
+    box-shadow: 0 4px 15px rgba(255,0,85,0.4); display: none;">
+    開啟 AR 相機 📷
+</button>
+
+<script>
+async function setupARButton() {
+    const arBtn = document.getElementById('custom-ar-btn');
+    const msgBox = document.getElementById('msg-box');
+
+    // 1. 檢查網域是否為安全連線 (HTTPS)
+    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+        msgBox.innerText = "⚠️ WebXR 必須在 HTTPS 網域下執行！請改用 https:// 連結。";
+        return;
+    }
+
+    // 2. 檢查 navigator.xr 是否存在
+    if (!navigator.xr) {
+        msgBox.innerText = "⚠️ 目前瀏覽器不支援 WebXR（iPhone 請使用 WebXR Viewer 開啟）。";
+        return;
+    }
+
+    // 3. 檢查設備是否支援 immersive-ar
+    try {
+        const isSupported = await navigator.xr.isSessionSupported('immersive-ar');
+        if (isSupported) {
+            arBtn.style.display = 'block';
+            arBtn.addEventListener('click', () => {
+                // 啟動 WebXR 實境 Session
+                navigator.xr.requestSession('immersive-ar', {
+                    requiredFeatures: ['hit-test'],
+                    optionalFeatures: ['dom-overlay'],
+                    domOverlay: { root: document.body }
+                }).then((session) => {
+                    renderer.xr.setSession(session);
+                    arBtn.style.display = 'none';
+                    msgBox.innerText = "請緩慢對準桌面/地面移動鏡頭...";
+                });
+            });
+        } else {
+            msgBox.innerText = "⚠️ 設備不支援 WebXR AR（請檢查是否已安裝 Google Play Services for AR）。";
+        }
+    } catch (err) {
+        msgBox.innerText = "⚠️ WebXR 檢測出錯：" + err.message;
+    }
+}
+
+// 於 init() 函式最後呼叫 setupARButton();
+</script>
