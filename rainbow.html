@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>AR 實體擲彩虹 WebXR</title>
+  <title>AR 實體擲彩虹 WebXR Pro</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
@@ -35,7 +35,7 @@
     #info-card {
       background: rgba(0, 0, 0, 0.85); color: #ffcc00;
       padding: 14px 22px; border-radius: 20px;
-      font-size: 16px; font-weight: bold; text-align: center;
+      font-size: 15px; font-weight: bold; text-align: center;
       max-width: 90%; backdrop-filter: blur(8px);
       border: 1px solid rgba(255,255,255,0.2);
       box-shadow: 0 4px 15px rgba(0,0,0,0.5);
@@ -103,7 +103,7 @@
     let gameState = 'IDLE'; // IDLE, SCANNING, COUNTDOWN, PLAYING
     let markedCoins = 0;
     let totalScore = 0;
-    const REAL_COIN_RADIUS = 0.025; // 假設真實硬幣半徑約 2.5cm (例如 5蚊/10蚊硬幣)
+    const REAL_COIN_RADIUS = 0.025; // 真實硬幣半徑約 2.5cm
 
     let audioCtx = null;
 
@@ -180,17 +180,18 @@
         const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
         scene.add(light);
 
-        // 地面對準目標環 (準星)
-        const ringGeo = new THREE.RingGeometry(0.03, 0.04, 32).rotateX(-Math.PI / 2);
+        // 瞄準環
+        const ringGeo = new THREE.RingGeometry(0.03, 0.045, 32).rotateX(-Math.PI / 2);
         const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, side: THREE.DoubleSide });
         reticle = new THREE.Mesh(ringGeo, ringMat);
         reticle.matrixAutoUpdate = false;
         reticle.visible = false;
         scene.add(reticle);
 
+        // 將 hit-test 設為 optional，防止設備不支援直接報錯
         const session = await navigator.xr.requestSession('immersive-ar', {
-          requiredFeatures: ['hit-test', 'local-floor'],
-          optionalFeatures: ['dom-overlay'],
+          requiredFeatures: ['local-floor'],
+          optionalFeatures: ['hit-test', 'dom-overlay'],
           domOverlay: { root: overlay }
         });
 
@@ -199,12 +200,17 @@
         btnStart.style.display = 'none';
         btnPlaceRainbow.style.display = 'block';
         gameState = 'SCANNING';
-        infoCard.innerText = "請將相機對準空曠地面，直到出現圓環";
+        infoCard.innerText = "請將手機對準地面（若無圓環可直接點擊「放置彩虹」）";
 
-        const viewerSpace = await session.requestReferenceSpace('viewer');
-        hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+        // 嘗試建立 Hit-Test
+        try {
+          const viewerSpace = await session.requestReferenceSpace('viewer');
+          hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+        } catch (e) {
+          console.warn("Hit-Test 模式不被完全支援，將使用保底手動放置模式");
+        }
+
         xrRefSpace = await session.requestReferenceSpace('local-floor');
-
         renderer.setAnimationLoop(renderLoop);
 
       } catch (err) {
@@ -212,11 +218,11 @@
       }
     });
 
-    // 建立 3D 彩虹地毯
+    // 建立彩虹圖案
     function createRainbow() {
       const group = new THREE.Group();
 
-      // 白色底盤（提升在深色地板上的對比度）
+      // 高對比底盤
       const baseGeo = new THREE.RingGeometry(0.18, 0.90, 64, 1, 0, Math.PI);
       const baseMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
       const baseMesh = new THREE.Mesh(baseGeo, baseMat);
@@ -239,7 +245,6 @@
         mesh.position.y = 0.001;
         group.add(mesh);
 
-        // 黑色死穴邊界線
         const lineGeo = new THREE.RingGeometry(radii[i][1], radii[i][1] + 0.02, 64, 1, 0, Math.PI);
         const lineMat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
         const lineMesh = new THREE.Mesh(lineGeo, lineMat);
@@ -250,20 +255,30 @@
       return group;
     }
 
+    // 放置彩虹邏輯（支援 Hit Test ＋ 手動保底）
     btnPlaceRainbow.addEventListener('click', () => {
+      rainbowGroup = createRainbow();
+
       if (reticle && reticle.visible) {
-        rainbowGroup = createRainbow();
+        // 模式 A：使用精確地面 Hit Test 放置
         rainbowGroup.matrix.copy(reticle.matrix);
         rainbowGroup.matrix.decompose(rainbowGroup.position, rainbowGroup.quaternion, rainbowGroup.scale);
-        scene.add(rainbowGroup);
-
-        btnPlaceRainbow.style.display = 'none';
-        gameState = 'COUNTDOWN';
-
-        runCountdown();
       } else {
-        alert("未偵測到地面！請先移動手機對準地板。");
+        // 模式 B：保底放置 - 自動計算在手機前方 1.2 米、地面下方 1.0 米的位置
+        const dir = new THREE.Vector3(0, 0, -1.2).applyQuaternion(camera.quaternion);
+        const targetPos = camera.position.clone().add(dir);
+        targetPos.y = camera.position.y - 1.0; 
+
+        rainbowGroup.position.copy(targetPos);
+        // 讓彩虹平鋪在地板上並面向玩家
+        rainbowGroup.rotation.x = 0;
+        rainbowGroup.lookAt(camera.position.x, rainbowGroup.position.y, camera.position.z);
       }
+
+      scene.add(rainbowGroup);
+      btnPlaceRainbow.style.display = 'none';
+      gameState = 'COUNTDOWN';
+      runCountdown();
     });
 
     function runCountdown() {
@@ -286,26 +301,31 @@
           btnMarkCoin.style.display = 'block';
           btnReset.style.display = 'block';
           gameState = 'PLAYING';
-          infoCard.innerText = "🪙 請擲出真實硬幣！然後將鏡頭圓環對準硬幣，按下【標記硬幣落點】";
+          infoCard.innerText = "🪙 請擲出真實硬幣！將鏡頭對準硬幣，按下【標記硬幣落點】";
           infoCard.style.color = "#00ff88";
         }
       }, 800);
     }
 
-    // 標記真實硬幣落點並計分
+    // 標記硬幣落點
     btnMarkCoin.addEventListener('click', () => {
-      if (gameState !== 'PLAYING' || !reticle || !reticle.visible) {
-        alert("請將鏡頭對準地板上真實硬幣的位置！");
-        return;
-      }
+      if (gameState !== 'PLAYING') return;
 
       markedCoins++;
       document.getElementById('coin-count').innerText = markedCoins;
 
-      // 取得準星當前在真實世界地板上的位置
-      const coinPos = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
+      let coinPos = new THREE.Vector3();
 
-      // 在真實硬幣上方放置 AR 判定標記圈
+      if (reticle && reticle.visible) {
+        coinPos.setFromMatrixPosition(reticle.matrix);
+      } else {
+        // 若當時沒有 Hit Test，則取手機鏡頭正前方 1.2 米地面點
+        const dir = new THREE.Vector3(0, 0, -1.2).applyQuaternion(camera.quaternion);
+        coinPos = camera.position.clone().add(dir);
+        coinPos.y = rainbowGroup ? rainbowGroup.position.y : camera.position.y - 1.0;
+      }
+
+      // 在真實硬幣落點放置 3D 判定光環
       const markerGeo = new THREE.RingGeometry(0.02, 0.035, 32).rotateX(-Math.PI / 2);
       const markerMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
       const markerMesh = new THREE.Mesh(markerGeo, markerMat);
@@ -314,11 +334,10 @@
       scene.add(markerMesh);
       coinMarkers.push(markerMesh);
 
-      // 判定真實硬幣得分
       evaluateScore(coinPos, markerMesh);
     });
 
-    // 計算落點分數
+    // 計算分數
     function evaluateScore(pos, markerMesh) {
       const localPos = rainbowGroup.worldToLocal(pos.clone());
 
@@ -332,10 +351,10 @@
 
       const dist = Math.hypot(localPos.x, localPos.y);
       const bands = [
-        { min: 0.20, max: 0.35, pts: 100 }, // 藍
-        { min: 0.37, max: 0.52, pts: 50 },  // 紅
-        { min: 0.54, max: 0.69, pts: 20 },  // 黃
-        { min: 0.71, max: 0.86, pts: 10 }   // 綠
+        { min: 0.20, max: 0.35, pts: 100 },
+        { min: 0.37, max: 0.52, pts: 50 },
+        { min: 0.54, max: 0.69, pts: 20 },
+        { min: 0.71, max: 0.86, pts: 10 }
       ];
 
       let hit = null;
@@ -344,7 +363,6 @@
       for (let b of bands) {
         if (dist >= b.min && dist <= b.max) {
           hit = b;
-          // 硬幣半徑壓線檢查
           if ((dist - REAL_COIN_RADIUS < b.min) || (dist + REAL_COIN_RADIUS > b.max)) {
             isTouchLine = true;
           }
@@ -369,11 +387,10 @@
         infoCard.style.color = "#00ff88";
         markerMesh.material.color.setHex(0x00ff00);
         playSound('win');
-        createSparkles(pos); // 在真實硬幣上噴發火花
+        createSparkles(pos);
       }
     }
 
-    // 中獎火花特效
     function createSparkles(pos) {
       const count = 35;
       const geo = new THREE.BufferGeometry();
@@ -411,27 +428,34 @@
       btnMarkCoin.style.display = 'none';
       btnPlaceRainbow.style.display = 'block';
       gameState = 'SCANNING';
-      infoCard.innerText = "請掃描地面，準備重新擺放彩虹";
+      infoCard.innerText = "請對準地面，準備放置彩虹";
       infoCard.style.color = "#ffcc00";
     });
 
     // 主渲染迴圈
     function renderLoop(timestamp, frame) {
-      if (frame && (gameState === 'SCANNING' || gameState === 'PLAYING')) {
+      if (frame && hitTestSource && (gameState === 'SCANNING' || gameState === 'PLAYING')) {
         const hitTestResults = frame.getHitTestResults(hitTestSource);
         if (hitTestResults.length > 0) {
           const hit = hitTestResults[0];
           const pose = hit.getPose(xrRefSpace);
           reticle.visible = true;
           reticle.matrix.fromArray(pose.transform.matrix);
+          
+          if (gameState === 'SCANNING') {
+            infoCard.innerText = "🟢 已精確鎖定地面！請按下「放置彩虹」";
+            infoCard.style.color = "#00ff88";
+          }
         } else {
           reticle.visible = false;
+          if (gameState === 'SCANNING') {
+            infoCard.innerText = "🟡 搜尋地面中...（或可直接點「放置彩虹」強行擺放）";
+            infoCard.style.color = "#ffcc00";
+          }
         }
-      } else {
-        reticle.visible = false;
       }
 
-      // 特效火花更新
+      // 粒子更新
       for (let i = particleSystems.length - 1; i >= 0; i--) {
         let ps = particleSystems[i];
         ps.life -= 0.03;
