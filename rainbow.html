@@ -1,234 +1,389 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="zh-HK">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>3D 空間 AR 擲彩虹 🌈</title>
-    <!-- 引入 A-Frame 網頁 3D/AR 引擎 -->
-    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
-    <style>
-        * { box-sizing: border-box; }
-        body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; background-color: #000; }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>AR 擲彩虹 WebXR</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100vw; height: 100vh; overflow: hidden;
+      background-color: #000; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
 
-        /* UI 介面圖層 */
-        #ui-layer {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none; z-index: 10;
-            display: flex; flex-direction: column; justify-content: space-between;
-            padding: 20px;
-        }
-        .hud {
-            display: flex; justify-content: space-between;
-            color: #fff; font-size: 20px; font-weight: bold;
-            text-shadow: 2px 2px 5px rgba(0,0,0,0.9);
-        }
-        #msg {
-            text-align: center; color: #ffeb3b; font-size: 20px; font-weight: bold;
-            text-shadow: 2px 2px 5px rgba(0,0,0,0.9); margin-bottom: 20px;
-        }
-        #throw-btn {
-            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
-            pointer-events: auto; background: #ff0055; color: white;
-            border: none; padding: 15px 40px; font-size: 22px; font-weight: bold;
-            border-radius: 50px; box-shadow: 0 5px 20px rgba(255,0,85,0.6);
-            cursor: pointer; display: none;
-        }
-        #start-ar-btn {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            z-index: 20; background: #00e676; color: #000; font-size: 22px; font-weight: bold;
-            padding: 18px 36px; border-radius: 50px; border: none; cursor: pointer;
-            box-shadow: 0 0 25px rgba(0,230,118,0.9);
-        }
-    </style>
+    /* AR DOM Overlay */
+    #xr-overlay {
+      position: fixed; top: 0; left: 0;
+      width: 100vw; height: 100vh; z-index: 9999;
+      display: flex; flex-direction: column;
+      justify-content: space-between; align-items: center;
+      padding-top: max(20px, env(safe-area-inset-top));
+      padding-bottom: max(35px, env(safe-area-inset-bottom));
+      padding-left: 20px; padding-right: 20px;
+      pointer-events: none;
+    }
+
+    .interactive { pointer-events: auto; }
+
+    #top-hud {
+      display: flex; justify-content: space-between; width: 100%;
+      background: rgba(0, 0, 0, 0.7); color: #fff;
+      padding: 15px 20px; border-radius: 15px;
+      font-size: 18px; font-weight: bold; backdrop-filter: blur(5px);
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+
+    #info-card {
+      background: rgba(0, 0, 0, 0.85); color: #ffcc00;
+      padding: 14px 22px; border-radius: 20px;
+      font-size: 16px; font-weight: bold; text-align: center;
+      max-width: 90%; backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.2);
+      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+      margin-bottom: 20px;
+    }
+
+    #controls {
+      display: flex; gap: 12px; width: 100%;
+      max-width: 400px; justify-content: center;
+      margin-bottom: 5px;
+    }
+
+    .btn {
+      flex: 1; padding: 16px 10px; font-size: 18px; font-weight: 900;
+      color: #fff; border: none; border-radius: 30px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.5); cursor: pointer; text-align: center;
+      transition: transform 0.1s;
+    }
+    .btn:active { transform: scale(0.95); }
+
+    #btn-start { background: #007bff; width: 100%; max-width: 260px; }
+    #btn-place-rainbow { background: #ff0055; display: none; }
+    #btn-throw { background: #00cc66; display: none; font-size: 22px;}
+    #btn-reset { background: #ffcc00; color: #000; display: none; }
+
+  </style>
+
+  <!-- Three.js 庫 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
 
-    <button id="start-ar-btn" onclick="initARGame()">🚀 啟動 3D 空間 AR 模式</button>
-
-    <div id="ui-layer">
-        <div class="hud">
-            <div>金幣：<span id="coins">5</span> / 5</div>
-            <div>得分：<span id="score">0</span></div>
-        </div>
-        <div id="msg">請點擊上方按鈕啟動 AR 鏡頭！</div>
+  <!-- AR DOM Overlay -->
+  <div id="xr-overlay">
+    <div id="top-hud" class="interactive">
+      <div>金幣: <span id="coin-count">10</span></div>
+      <div>分數: <span id="score">0</span></div>
     </div>
+    
+    <div style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+      <div id="info-card">請點擊下方「開啟 AR 鏡頭」按鈕</div>
+      <div id="controls" class="interactive">
+        <button id="btn-start" class="btn">開啟 AR 鏡頭</button>
+        <button id="btn-place-rainbow" class="btn">1. 在此放置彩虹</button>
+        <button id="btn-throw" class="btn">🪙 擲硬幣</button>
+        <button id="btn-reset" class="btn">重新擺放</button>
+      </div>
+    </div>
+  </div>
 
-    <button id="throw-btn" onclick="throwCoin()">擲硬幣 🪙</button>
+  <script>
+    let camera, scene, renderer;
+    let xrRefSpace, hitTestSource = null;
+    let reticle;
+    let rainbowGroup = null;
+    let activeCoins = []; // 儲存飛行中的硬幣
 
-    <!-- A-Frame 3D 空間場景 -->
-    <a-scene embedded vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
-        
-        <!-- AR 鏡頭與陀螺儀追蹤 -->
-        <a-entity id="camera" camera look-controls position="0 1.6 0"></a-entity>
+    let gameState = 'IDLE'; // IDLE, SCANNING, PLAYING
+    let coinsLeft = 10;
+    let totalScore = 0;
 
-        <!-- 固定在真實 3D 空間原點的彩虹 (桌面) -->
-        <a-entity id="rainbow-group" position="0 0.2 -1.8" rotation="-70 0 0">
-            <!-- 藍彩 100分 -->
-            <a-ring color="#2196f3" radius-inner="0.25" radius-outer="0.4" theta-length="180" rotation="0 0 -90"></a-ring>
-            <a-ring color="#000000" radius-inner="0.395" radius-outer="0.405" theta-length="180" rotation="0 0 -90"></a-ring>
-            
-            <!-- 紅彩 50分 -->
-            <a-ring color="#f44336" radius-inner="0.42" radius-outer="0.57" theta-length="180" rotation="0 0 -90"></a-ring>
-            <a-ring color="#000000" radius-inner="0.565" radius-outer="0.575" theta-length="180" rotation="0 0 -90"></a-ring>
-            
-            <!-- 黃彩 20分 -->
-            <a-ring color="#ffeb3b" radius-inner="0.59" radius-outer="0.74" theta-length="180" rotation="0 0 -90"></a-ring>
-            <a-ring color="#000000" radius-inner="0.735" radius-outer="0.745" theta-length="180" rotation="0 0 -90"></a-ring>
-            
-            <!-- 綠彩 10分 -->
-            <a-ring color="#4caf50" radius-inner="0.76" radius-outer="0.91" theta-length="180" rotation="0 0 -90"></a-ring>
-            <a-ring color="#000000" radius-inner="0.905" radius-outer="0.915" theta-length="180" rotation="0 0 -90"></a-ring>
-        </a-entity>
+    const COIN_RADIUS = 0.04; // 硬幣半徑 4cm
 
-        <a-light type="ambient" color="#ffffff" intensity="1"></a-light>
-    </a-scene>
+    const btnStart = document.getElementById('btn-start');
+    const btnPlaceRainbow = document.getElementById('btn-place-rainbow');
+    const btnThrow = document.getElementById('btn-throw');
+    const btnReset = document.getElementById('btn-reset');
+    const infoCard = document.getElementById('info-card');
+    const overlay = document.getElementById('xr-overlay');
 
-<script>
-let coinsLeft = 5;
-let score = 0;
+    window.addEventListener('DOMContentLoaded', () => {
+      if (!window.isSecureContext || !navigator.xr) {
+        infoCard.style.color = '#ff6b6b';
+        infoCard.innerText = "❌ 錯誤：請使用支援 WebXR 的 HTTPS 環境";
+        btnStart.disabled = true;
+      }
+    });
 
-async function initARGame() {
-    const startBtn = document.getElementById('start-ar-btn');
-    const throwBtn = document.getElementById('throw-btn');
-    const msgEl = document.getElementById('msg');
+    btnStart.addEventListener('click', async () => {
+      try {
+        infoCard.innerText = "正在啟動 AR...";
 
-    // 1. 請求 iPhone/Android 的陀螺儀 (Motion/Orientation) 權限
-    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        try {
-            const permission = await DeviceOrientationEvent.requestPermission();
-            if (permission !== 'granted') {
-                alert('需要同意陀螺儀權限才能進行 3D 空間 AR 定位！');
-                return;
-            }
-        } catch (e) {
-            console.error(e);
-        }
-    }
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
-    // 2. 開啟實境鏡頭
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: "environment" } },
-            audio: false
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.xr.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+        scene.add(light);
+
+        // 地面瞄準環
+        const ringGeo = new THREE.RingGeometry(0.1, 0.12, 32).rotateX(-Math.PI / 2);
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+        reticle = new THREE.Mesh(ringGeo, ringMat);
+        reticle.matrixAutoUpdate = false;
+        reticle.visible = false;
+        scene.add(reticle);
+
+        // 使用你成功開啟的 session 設定
+        const session = await navigator.xr.requestSession('immersive-ar', {
+          requiredFeatures: ['hit-test', 'local-floor'],
+          optionalFeatures: ['dom-overlay'],
+          domOverlay: { root: overlay }
         });
 
-        // 將鏡頭畫面設為 A-Frame 背景
-        const sceneEl = document.querySelector('a-scene');
-        let videoEl = document.createElement('video');
-        videoEl.style.position = 'absolute';
-        videoEl.style.top = '0'; videoEl.style.left = '0';
-        videoEl.style.width = '100vw'; videoEl.style.height = '100vh';
-        videoEl.style.objectFit = 'cover';
-        videoEl.style.zIndex = '-1';
-        videoEl.autoplay = true; videoEl.playsInline = true;
-        videoEl.srcObject = stream;
-        document.body.appendChild(videoEl);
+        renderer.xr.setSession(session);
 
-        startBtn.style.display = 'none';
-        throwBtn.style.display = 'block';
-        msgEl.innerText = "對準桌面，按下「擲硬幣」！🪙";
+        btnStart.style.display = 'none';
+        btnPlaceRainbow.style.display = 'block';
+        gameState = 'SCANNING';
+        infoCard.innerText = "請緩慢移動手機掃描地面，直到出現綠色圓環";
 
-    } catch (err) {
-        alert("無法啟動相機！請確認使用 https:// 網址，並允許相機權限。");
-        console.error(err);
+        const viewerSpace = await session.requestReferenceSpace('viewer');
+        hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+        xrRefSpace = await session.requestReferenceSpace('local-floor');
+
+        renderer.setAnimationLoop(renderLoop);
+
+      } catch (err) {
+        infoCard.innerText = "啟動 AR 失敗: " + err.message;
+      }
+    });
+
+    // 建立 3D 彩虹圖案
+    function createRainbow() {
+      const group = new THREE.Group();
+      const colors = [0x2196f3, 0xf44336, 0xffeb3b, 0x4caf50];
+      // 內徑與外徑 [min, max]
+      const radii = [
+        [0.20, 0.35], // 藍
+        [0.37, 0.52], // 紅
+        [0.54, 0.69], // 黃
+        [0.71, 0.86]  // 綠
+      ];
+
+      for (let i = 0; i < 4; i++) {
+        // 彩色區域
+        const geo = new THREE.RingGeometry(radii[i][0], radii[i][1], 64, 1, 0, Math.PI);
+        const mat = new THREE.MeshBasicMaterial({ color: colors[i], side: THREE.DoubleSide });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.rotation.x = -Math.PI / 2;
+        group.add(mesh);
+
+        // 黑色分隔線 (死穴)
+        const lineGeo = new THREE.RingGeometry(radii[i][1], radii[i][1] + 0.02, 64, 1, 0, Math.PI);
+        const lineMat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
+        const lineMesh = new THREE.Mesh(lineGeo, lineMat);
+        lineMesh.rotation.x = -Math.PI / 2;
+        group.add(lineMesh);
+      }
+      return group;
     }
-}
 
-function throwCoin() {
-    if (coinsLeft <= 0) return;
+    btnPlaceRainbow.addEventListener('click', () => {
+      if (reticle && reticle.visible) {
+        rainbowGroup = createRainbow();
+        // 將彩虹放置在瞄準環位置
+        rainbowGroup.position.setFromMatrixPosition(reticle.matrix);
+        
+        // 讓彩虹面朝相機
+        const camPos = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
+        rainbowGroup.lookAt(camPos.x, rainbowGroup.position.y, camPos.z);
+        
+        scene.add(rainbowGroup);
 
-    coinsLeft--;
-    document.getElementById('coins').innerText = coinsLeft;
+        btnPlaceRainbow.style.display = 'none';
+        btnThrow.style.display = 'block';
+        btnReset.style.display = 'block';
+        gameState = 'PLAYING';
 
-    const scene = document.querySelector('a-scene');
-    const cameraEl = document.getElementById('camera');
-
-    // 取得相機目前的 3D 空間位置
-    const camPos = cameraEl.object3D.position;
-
-    // 建立 3D 實體金色硬幣
-    const coin = document.createElement('a-cylinder');
-    coin.setAttribute('color', '#FFD700');
-    coin.setAttribute('height', '0.02');
-    coin.setAttribute('radius', '0.07');
-    coin.setAttribute('position', `${camPos.x} ${camPos.y - 0.2} ${camPos.z - 0.5}`);
-
-    scene.appendChild(coin);
-
-    // 3D 隨機落點 (目標：彩虹區域)
-    const targetX = (Math.random() - 0.5) * 1.4;
-    const targetZ = -1.8 + (Math.random() - 0.5) * 0.8;
-    const targetY = 0.2;
-
-    // 拋物線飛出動畫
-    coin.setAttribute('animation__pos', {
-        property: 'position',
-        to: `${targetX} ${targetY} ${targetZ}`,
-        dur: 700,
-        easing: 'easeOutQuad'
+        infoCard.innerText = "🎯 準備完成！對準彩虹，按下「擲硬幣」";
+        infoCard.style.color = "#00ff88";
+      } else {
+        alert("未偵測到地面！請先將相機對準地面。");
+      }
     });
 
-    coin.setAttribute('animation__rot', {
-        property: 'rotation',
-        to: '720 360 0',
-        dur: 700,
-        easing: 'linear'
+    btnThrow.addEventListener('click', () => {
+      if (gameState !== 'PLAYING' || coinsLeft <= 0) return;
+
+      coinsLeft--;
+      document.getElementById('coin-count').innerText = coinsLeft;
+
+      // 取得相機位置
+      const startPos = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
+      startPos.y -= 0.1; // 從手機稍微下方丟出
+
+      // 計算目標落點 (彩虹中心點加上隨機偏移，模擬人手誤差)
+      const targetPos = rainbowGroup.position.clone();
+      targetPos.x += (Math.random() - 0.5) * 1.5;
+      targetPos.z += (Math.random() - 0.5) * 1.5;
+
+      // 建立硬幣
+      const coinGeo = new THREE.CylinderGeometry(COIN_RADIUS, COIN_RADIUS, 0.01, 16);
+      const coinMat = new THREE.MeshStandardMaterial({ color: 0xFFD700, roughness: 0.3, metalness: 0.8 });
+      const coinMesh = new THREE.Mesh(coinGeo, coinMat);
+      coinMesh.position.copy(startPos);
+      scene.add(coinMesh);
+
+      // 加入動畫佇列
+      activeCoins.push({
+        mesh: coinMesh,
+        start: startPos,
+        target: targetPos,
+        progress: 0,
+        speed: 0.02 + (Math.random() * 0.01) // 飛行速度
+      });
+
+      if (coinsLeft === 0) {
+        btnThrow.style.display = 'none';
+      }
     });
 
-    setTimeout(() => {
-        evaluateARScore(targetX, targetZ, coin);
-    }, 750);
-}
+    btnReset.addEventListener('click', () => {
+      if (rainbowGroup) scene.remove(rainbowGroup);
+      activeCoins.forEach(c => scene.remove(c.mesh));
+      activeCoins = [];
+      
+      coinsLeft = 10;
+      totalScore = 0;
+      document.getElementById('coin-count').innerText = coinsLeft;
+      document.getElementById('score').innerText = totalScore;
+      
+      btnReset.style.display = 'none';
+      btnThrow.style.display = 'none';
+      btnPlaceRainbow.style.display = 'block';
+      gameState = 'SCANNING';
+      infoCard.innerText = "請掃描地面，準備重新放置彩虹";
+      infoCard.style.color = "#ffcc00";
+    });
 
-function evaluateARScore(x, z, coinEl) {
-    const msgEl = document.getElementById('msg');
-    
-    // 計算硬幣落點與彩虹中心 (0, 0, -1.8) 的 3D 幾何距離
-    const dist = Math.hypot(x - 0, z - (-1.8));
-    const coinR = 0.07; // 硬幣半徑 7cm
-
-    // 彩虹 3D 壓線門檻
-    const bands = [
-        { min: 0.25, max: 0.40, pts: 100 },
-        { min: 0.42, max: 0.57, pts: 50 },
-        { min: 0.59, max: 0.74, pts: 20 },
-        { min: 0.76, max: 0.91, pts: 10 }
-    ];
-
-    let hit = null;
-    let isTouchLine = false;
-
-    for (let b of bands) {
-        if (dist >= b.min && dist <= b.max) {
-            hit = b;
-            // 壓線死穴判定 (硬幣邊緣碰觸黑色分界線)
-            if ((dist - coinR < b.min + 0.015) || (dist + coinR > b.max - 0.015)) {
-                isTouchLine = true;
-            }
-            break;
+    // 動畫與渲染迴圈
+    function renderLoop(timestamp, frame) {
+      // 1. 地面偵測 (Hit Test)
+      if (frame && gameState === 'SCANNING') {
+        const hitTestResults = frame.getHitTestResults(hitTestSource);
+        if (hitTestResults.length > 0) {
+          const hit = hitTestResults[0];
+          const pose = hit.getPose(xrRefSpace);
+          reticle.visible = true;
+          reticle.matrix.fromArray(pose.transform.matrix);
+        } else {
+          reticle.visible = false;
         }
+      } else {
+        reticle.visible = false;
+      }
+
+      // 2. 硬幣飛行物理動畫
+      for (let i = activeCoins.length - 1; i >= 0; i--) {
+        let coin = activeCoins[i];
+        if (coin.progress < 1) {
+          coin.progress += coin.speed;
+          if (coin.progress > 1) coin.progress = 1;
+
+          // 線性插值計算 X, Z
+          coin.mesh.position.lerpVectors(coin.start, coin.target, coin.progress);
+          
+          // 加上拋物線高度 Y (利用 sin 函數)
+          const parabolaHeight = Math.sin(coin.progress * Math.PI) * 0.6;
+          coin.mesh.position.y += parabolaHeight;
+
+          // 旋轉動畫
+          coin.mesh.rotation.x += 0.4;
+          coin.mesh.rotation.z += 0.2;
+
+          // 落地結算
+          if (coin.progress === 1) {
+            coin.mesh.position.copy(coin.target); // 貼齊地面
+            coin.mesh.rotation.set(0, 0, 0); // 平放
+            evaluateScore(coin.target, coin.mesh);
+          }
+        }
+      }
+
+      renderer.render(scene, camera);
     }
 
-    if (!hit) {
-        msgEl.innerText = "出界！沒擲中彩虹 ❌";
-        coinEl.setAttribute('color', '#555555');
-    } else if (isTouchLine) {
-        msgEl.innerText = "慘！壓線算輸！⚠️";
-        coinEl.setAttribute('color', '#FF0000'); // 壓線變紅
-    } else {
-        score += hit.pts;
-        document.getElementById('score').innerText = score;
-        msgEl.innerText = `🎉 中獎！獲得 ${hit.pts} 分！`;
-        coinEl.setAttribute('color', '#00FF00'); // 成功變綠
+    // 計算得分
+    function evaluateScore(pos, coinMesh) {
+      // 計算落點與彩虹中心的平面距離
+      const center = rainbowGroup.position;
+      const dx = pos.x - center.x;
+      const dz = pos.z - center.z;
+      
+      // 判斷是否落在彩虹的半圓範圍內 (Z 必須大於等於中心點)
+      // 因為彩虹圖案建立時轉了 -Math.PI/2，且畫的是 0 到 Math.PI，需計算局部座標
+      const localPos = rainbowGroup.worldToLocal(pos.clone());
+      if (localPos.y < 0) {
+        infoCard.innerText = "出界！投到彩虹後方 ❌";
+        coinMesh.material.color.setHex(0x555555);
+        checkGameOver();
+        return;
+      }
+
+      const dist = Math.hypot(localPos.x, localPos.y);
+
+      // 與 createRainbow 裡的 radii 對應
+      const bands = [
+        { min: 0.20, max: 0.35, pts: 100 }, // 藍
+        { min: 0.37, max: 0.52, pts: 50 },  // 紅
+        { min: 0.54, max: 0.69, pts: 20 },  // 黃
+        { min: 0.71, max: 0.86, pts: 10 }   // 綠
+      ];
+
+      let hit = null;
+      let isTouchLine = false;
+
+      for (let b of bands) {
+        if (dist >= b.min && dist <= b.max) {
+          hit = b;
+          // 壓線判定 (距離黑色邊緣小於硬幣半徑)
+          if ((dist - COIN_RADIUS < b.min) || (dist + COIN_RADIUS > b.max)) {
+            isTouchLine = true;
+          }
+          break;
+        }
+      }
+
+      if (!hit) {
+        infoCard.innerText = "出界！沒中 ❌";
+        coinMesh.material.color.setHex(0x555555);
+      } else if (isTouchLine) {
+        infoCard.innerText = "壓線！太可惜了 ⚠️";
+        coinMesh.material.color.setHex(0xff0000);
+      } else {
+        totalScore += hit.pts;
+        document.getElementById('score').innerText = totalScore;
+        infoCard.innerText = `🎉 中獎！獲得 ${hit.pts} 分！`;
+        coinMesh.material.color.setHex(0x00ff00);
+      }
+      
+      checkGameOver();
     }
 
-    if (coinsLeft === 0) {
+    function checkGameOver() {
+      if (coinsLeft === 0) {
         setTimeout(() => {
-            msgEl.innerText = `🏆 遊戲結束！總得分：${score} 分`;
-            document.getElementById('throw-btn').style.display = 'none';
+          infoCard.innerText = `🏆 遊戲結束！總得分：${totalScore} 分`;
+          infoCard.style.color = "#ffcc00";
         }, 1500);
+      }
     }
-}
-</script>
+  </script>
 </body>
 </html>
