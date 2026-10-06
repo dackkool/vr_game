@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI AR 擲彩虹 🌈</title>
+    <style>
+        * { box-sizing: border-box; touch-action: manipulation; }
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background-color: #000; color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative; width: 100vw; height: 100vh;
+            display: flex; flex-direction: column; justify-content: space-between; align-items: center;
+        }
+        video, canvas {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%; object-fit: cover;
+        }
+        #hud {
+            position: absolute; top: 15px; left: 15px; right: 15px;
+            display: flex; justify-content: space-between;
+            padding: 12px 20px; background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(8px); border-radius: 16px;
+            font-size: 18px; font-weight: bold; color: #ffeb3b;
+            z-index: 10; border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        #status-msg {
+            position: absolute; top: 80px; left: 50%; transform: translateX(-50%);
+            padding: 8px 16px; background: rgba(0, 0, 0, 0.7);
+            border-radius: 20px; font-size: 16px; color: #00e676;
+            z-index: 10; text-align: center; white-space: nowrap;
+        }
+        #controls {
+            position: absolute; bottom: 30px; left: 0; width: 100%;
+            display: flex; flex-direction: column; align-items: center;
+            gap: 12px; z-index: 10; padding: 0 20px;
+        }
+        .btn {
+            background: linear-gradient(135deg, #007aff, #00d4ff);
+            color: #fff; border: none; padding: 16px 36px;
+            font-size: 20px; font-weight: bold; border-radius: 50px;
+            box-shadow: 0 6px 20px rgba(0, 212, 255, 0.4);
+            cursor: pointer; width: 85%; max-width: 320px;
+            text-align: center;
+        }
+        .btn-throw {
+            background: linear-gradient(135deg, #ff0055, #ff5500);
+            box-shadow: 0 6px 20px rgba(255, 0, 85, 0.4);
+        }
+        .btn:active { transform: scale(0.96); }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <!-- 鏡頭與 AR 繪製層 -->
+    <video id="webcam" playsinline autoplay muted></video>
+    <canvas id="arCanvas"></canvas>
+
+    <!-- 頂部資訊欄 -->
+    <div id="hud">
+        <div>🪙 次數：<span id="coins-count">0</span></div>
+        <div>🏆 總分：<span id="total-score">0</span></div>
+    </div>
+
+    <div id="status-msg">AI 模型已就緒，請點擊開啟鏡頭</div>
+
+    <!-- 底部操作區 -->
+    <div id="controls">
+        <button id="main-btn" class="btn" onclick="handleMainAction()">開啟 AI AR 鏡頭 🚀</button>
+    </div>
+</div>
+
+<script>
+const video = document.getElementById('webcam');
+const canvas = document.getElementById('arCanvas');
+const ctx = canvas.getContext('2d');
+
+const statusMsg = document.getElementById('status-msg');
+const mainBtn = document.getElementById('main-btn');
+const coinsEl = document.getElementById('coins-count');
+const scoreEl = document.getElementById('total-score');
+
+let isCameraActive = false;
+let throwCount = 0;
+let totalScore = 0;
+
+// 彩虹目標設定
+let rainbowCenter = { x: 0, y: 0 };
+const rainbowBands = [
+    { innerR: 0.15, outerR: 0.25, score: 100, color: '#2196f3' }, // 藍
+    { innerR: 0.26, outerR: 0.36, score: 50,  color: '#f44336' }, // 紅
+    { innerR: 0.37, outerR: 0.47, score: 20,  color: '#ffeb3b' }, // 黃
+    { innerR: 0.48, outerR: 0.58, score: 10,  color: '#4caf50' }  // 綠
+];
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    rainbowCenter = { x: canvas.width / 2, y: canvas.height * 0.75 };
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// 主按鈕邏輯切換
+async function handleMainAction() {
+    if (!isCameraActive) {
+        await startCamera();
+    } else {
+        throwCoin();
+    }
+}
+
+// 啟動手機鏡頭
+async function startCamera() {
+    statusMsg.innerText = "正在請求相機權限...";
+    
+    const constraints = {
+        video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+        },
+        audio: false
+    };
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        
+        // 確保在 iOS/Android 順利播放
+        await video.play();
+        
+        isCameraActive = true;
+        statusMsg.innerText = "鏡頭已開啟！點擊下方「擲硬幣」遊戲 🪙";
+        
+        mainBtn.innerText = "擲硬幣 🪙";
+        mainBtn.classList.add('btn-throw');
+        
+        requestAnimationFrame(drawLoop);
+    } catch (err) {
+        console.error("Camera Error:", err);
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            statusMsg.innerText = "⚠️ 請點擊網址列🔒圖示允許相機權限";
+            alert("相機權限被拒絕！請在瀏覽器設定中開啟相機權限後重新整理。");
+        } else {
+            statusMsg.innerText = "無法存取鏡頭: " + err.message;
+        }
+    }
+}
+
+// 繪製 AR 彩虹
+function drawRainbow() {
+    const minDim = Math.min(canvas.width, canvas.height);
+    
+    rainbowBands.forEach(band => {
+        const innerRadius = band.innerR * minDim;
+        const outerRadius = band.outerR * minDim;
+
+        ctx.beginPath();
+        ctx.arc(rainbowCenter.x, rainbowCenter.y, outerRadius, Math.PI, 0, false);
+        ctx.arc(rainbowCenter.x, rainbowCenter.y, innerRadius, 0, Math.PI, true);
+        ctx.closePath();
+
+        ctx.fillStyle = band.color + '88'; // 半透明
+        ctx.fill();
+
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = '#000000';
+        ctx.stroke();
+
+        // 標記分數
+        const midR = (innerRadius + outerRadius) / 2;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${band.score}分`, rainbowCenter.x, rainbowCenter.y - midR + 6);
+    });
+}
+
+// 動畫與渲染主循環
+function drawLoop() {
+    if (!isCameraActive) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawRainbow();
+
+    requestAnimationFrame(drawLoop);
+}
+
+// 手動 / AI 擲硬幣模擬
+function throwCoin() {
+    throwCount++;
+    coinsEl.innerText = throwCount;
+
+    const minDim = Math.min(canvas.width, canvas.height);
+    
+    // 模擬投擲落點 (中央附近隨機)
+    const dropX = rainbowCenter.x + (Math.random() - 0.5) * (minDim * 0.8);
+    const dropY = rainbowCenter.y - Math.random() * (minDim * 0.6);
+
+    // 計算落點得分與壓線
+    const dist = Math.hypot(dropX - rainbowCenter.x, dropY - rainbowCenter.y);
+    const coinRadius = 15; // 硬幣半徑 (像素)
+
+    let hitBand = null;
+    let isTouchLine = false;
+
+    for (let band of rainbowBands) {
+        const inR = band.innerR * minDim;
+        const outR = band.outerR * minDim;
+
+        if (dist >= inR && dist <= outR) {
+            hitBand = band;
+            if ((dist - coinRadius < inR + 2) || (dist + coinRadius > outR - 2)) {
+                isTouchLine = true;
+            }
+            break;
+        }
+    }
+
+    // 繪製硬幣落點動畫
+    ctx.beginPath();
+    ctx.arc(dropX, dropY, coinRadius, 0, Math.PI * 2);
+    
+    if (!hitBand) {
+        statusMsg.innerText = "出界！沒擲中彩虹 ❌";
+        ctx.fillStyle = '#9e9e9e';
+    } else if (isTouchLine) {
+        statusMsg.innerText = "慘！壓線不計算分數 ⚠️";
+        ctx.fillStyle = '#ff1744';
+    } else {
+        totalScore += hitBand.score;
+        scoreEl.innerText = totalScore;
+        statusMsg.innerText = `🎉 恭喜擲中！獲得 ${hitBand.score} 分！`;
+        ctx.fillStyle = '#00e676';
+    }
+    
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+}
+</script>
+</body>
+</html>
