@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 智慧跳繩計數器 - MediaPipe Pose</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    
+    <!-- MediaPipe Pose JS 相關 CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            touch-action: manipulation;
+        }
+        .mirror {
+            transform: scaleX(-1);
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col items-center justify-between p-4">
+
+    <!-- 頂部標題區 -->
+    <header class="w-full max-w-2xl text-center py-2">
+        <h1 class="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">
+            AI 智慧跳繩計數器
+        </h1>
+        <p class="text-xs md:text-sm text-slate-400 mt-1">請後退讓全身入鏡，雙手持繩（或模擬手勢）開始跳躍！</p>
+    </header>
+
+    <!-- 主要畫面區 (鏡頭 + 骨架 Canvas) -->
+    <main class="relative w-full max-w-md aspect-[3/4] md:aspect-[4/3] bg-slate-950 rounded-2xl overflow-hidden shadow-2xl border border-slate-800 my-2">
+        <!-- 隱藏的原始 Video 串流 -->
+        <video id="webcam" class="absolute inset-0 w-full h-full object-cover mirror opacity-0" autoplay playsinline muted></video>
+        
+        <!-- 繪製骨架與影像的 Canvas -->
+        <canvas id="output_canvas" class="absolute inset-0 w-full h-full object-cover mirror"></canvas>
+
+        <!-- 即時動態提示浮層 -->
+        <div id="status-badge" class="absolute top-4 left-4 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-700 text-xs md:text-sm font-bold text-emerald-400 shadow-lg transition-all duration-300">
+            等待啟動 🚀
+        </div>
+
+        <!-- 啟動按鈕遮罩 -->
+        <div id="loading" class="absolute inset-0 bg-slate-900/95 flex flex-col items-center justify-center z-20 p-6 text-center transition-opacity duration-500">
+            <div id="loading-spinner" class="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p id="loading-text" class="text-sm font-medium text-slate-300 mb-4">準備載入 AI 跳繩辨識模型...</p>
+            <button id="start-btn" class="hidden bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black px-6 py-3 rounded-xl shadow-lg active:scale-95 transition cursor-pointer">
+                點擊開始使用相機 📷
+            </button>
+        </div>
+    </main>
+
+    <!-- 數據面板區 -->
+    <section class="w-full max-w-md grid grid-cols-2 gap-3 my-2">
+        <div class="bg-slate-800/80 backdrop-blur-md border border-slate-700 rounded-xl p-3 text-center shadow-md">
+            <div class="text-xs text-slate-400 font-medium">跳繩次數</div>
+            <div id="count-display" class="text-4xl md:text-5xl font-black text-emerald-400 mt-1">0</div>
+        </div>
+        <div class="bg-slate-800/80 backdrop-blur-md border border-slate-700 rounded-xl p-3 text-center shadow-md flex flex-col justify-between">
+            <div class="text-xs text-slate-400 font-medium">動作狀態</div>
+            <div id="pose-state" class="text-lg md:text-xl font-bold text-cyan-300 mt-1">請預備</div>
+            <button id="reset-btn" class="mt-2 text-xs bg-slate-700 hover:bg-slate-600 active:scale-95 transition text-slate-200 py-1 px-2 rounded-lg cursor-pointer">
+                歸零重置
+            </button>
+        </div>
+    </section>
+
+    <!-- 底部版權 -->
+    <footer class="text-xs text-slate-500 py-1">
+        Powered by Google MediaPipe & Tailwind CSS
+    </footer>
+
+    <!-- JavaScript 邏輯 -->
+    <script>
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const countDisplay = document.getElementById('count-display');
+        const poseStateDisplay = document.getElementById('pose-state');
+        const statusBadge = document.getElementById('status-badge');
+        const loadingOverlay = document.getElementById('loading');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const loadingText = document.getElementById('loading-text');
+        const startBtn = document.getElementById('start-btn');
+        const resetBtn = document.getElementById('reset-btn');
+
+        let ropeCount = 0;
+        let jumpState = 'GROUND'; // 'GROUND' (落地) 或 'AIR' (起跳空中)
+        let baselineAnkleY = null; // 用來動態記錄站立時的腳踝基準線
+        let lastStateChangeTime = 0;
+        let pose = null;
+        let camera = null;
+        let isModelLoaded = false;
+
+        // 重置按鈕事件
+        resetBtn.addEventListener('click', () => {
+            ropeCount = 0;
+            jumpState = 'GROUND';
+            baselineAnkleY = null;
+            countDisplay.innerText = ropeCount;
+            poseStateDisplay.innerText = '已重置';
+            statusBadge.innerText = '請預備 🚀';
+            statusBadge.className = "absolute top-4 left-4 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-700 text-xs md:text-sm font-bold text-emerald-400 shadow-lg";
+        });
+
+        function onResults(results) {
+            if (canvasElement.width !== videoElement.videoWidth || canvasElement.height !== videoElement.videoHeight) {
+                if (videoElement.videoWidth > 0) {
+                    canvasElement.width = videoElement.videoWidth;
+                    canvasElement.height = videoElement.videoHeight;
+                }
+            }
+
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.poseLandmarks) {
+                const landmarks = results.poseLandmarks;
+
+                // 畫出骨架與關節
+                drawConnectors(canvasCtx, landmarks, POSE_CONNECTIONS, {color: '#10B981', lineWidth: 4});
+                drawLandmarks(canvasCtx, landmarks, {color: '#06B6D4', lineWidth: 2, radius: 4});
+
+                // MediaPipe Pose 關節索引：
+                // 27: 左腳踝 (Left Ankle), 28: 右腳踝 (Right Ankle)
+                const leftAnkle = landmarks[27];
+                const rightAnkle = landmarks[28];
+
+                if (leftAnkle && rightAnkle && leftAnkle.visibility > 0.5 && rightAnkle.visibility > 0.5) {
+                    const currentAnkleY = (leftAnkle.y + rightAnkle.y) / 2;
+
+                    // 若尚未初始化基準線，或每隔一段時間校正站立高度
+                    if (baselineAnkleY === null || jumpState === 'GROUND') {
+                        if (baselineAnkleY === null) {
+                            baselineAnkleY = currentAnkleY;
+                        } else {
+                            // 緩慢平滑更新基準線，適應輕微移動
+                            baselineAnkleY = baselineAnkleY * 0.95 + currentAnkleY * 0.05;
+                        }
+                    }
+
+                    // 螢幕座標 Y 往下遞增。當腳踝 Y 比基準線向上少了一定比例（例如 0.025），代表雙腳離地
+                    const jumpThreshold = 0.025; 
+                    const isAirborne = currentAnkleY < (baselineAnkleY - jumpThreshold);
+
+                    const now = Date.now();
+                    // 跳繩頻率較快，將冷卻時間縮短至 140ms
+                    if (now - lastStateChangeTime > 140) {
+                        if (jumpState === 'GROUND' && isAirborne) {
+                            jumpState = 'AIR';
+                            ropeCount++;
+                            countDisplay.innerText = ropeCount;
+                            poseStateDisplay.innerText = '起跳 🚀';
+                            statusBadge.innerText = '好球！+1 🎯';
+                            statusBadge.className = "absolute top-4 left-4 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-emerald-500 text-xs md:text-sm font-bold text-emerald-400 shadow-lg";
+                            
+                            triggerAnimation();
+                            lastStateChangeTime = now;
+                        } else if (jumpState === 'AIR' && !isAirborne) {
+                            jumpState = 'GROUND';
+                            poseStateDisplay.innerText = '落地 ⬇️';
+                            statusBadge.innerText = '保持節奏！🔥';
+                            statusBadge.className = "absolute top-4 left-4 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-cyan-500 text-xs md:text-sm font-bold text-cyan-400 shadow-lg";
+                            lastStateChangeTime = now;
+                        }
+                    }
+                }
+            } else {
+                poseStateDisplay.innerText = '未偵測到全身';
+                statusBadge.innerText = '請退後讓全身入鏡 ⚠️';
+                statusBadge.className = "absolute top-4 left-4 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-amber-500 text-xs md:text-sm font-bold text-amber-400 shadow-lg";
+            }
+
+            canvasCtx.restore();
+        }
+
+        function triggerAnimation() {
+            countDisplay.classList.add('scale-125', 'text-cyan-400');
+            setTimeout(() => {
+                countDisplay.classList.remove('scale-125', 'text-cyan-400');
+            }, 150);
+        }
+
+        // 初始化 MediaPipe
+        async function initAI() {
+            try {
+                pose = new Pose({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+                });
+
+                pose.setOptions({
+                    modelComplexity: 1,
+                    smoothLandmarks: true,
+                    enableSegmentation: false,
+                    smoothSegmentation: false,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+
+                pose.onResults(onResults);
+                isModelLoaded = true;
+
+                loadingSpinner.style.display = 'none';
+                loadingText.innerText = 'AI 模型載入完成！';
+                startBtn.classList.remove('hidden');
+            } catch (err) {
+                console.error("AI 模型載入失敗:", err);
+                loadingSpinner.style.display = 'none';
+                loadingText.innerHTML = `<span class="text-red-400 font-bold">AI 模型載入失敗，請檢查網路連線。</span>`;
+            }
+        }
+
+        // 點擊按鈕後啟動相機
+        startBtn.addEventListener('click', async () => {
+            loadingText.innerText = '正在要求相機權限...';
+            startBtn.classList.add('hidden');
+            loadingSpinner.style.display = 'block';
+
+            try {
+                camera = new Camera(videoElement, {
+                    onFrame: async () => {
+                        if (isModelLoaded && pose) {
+                            await pose.send({image: videoElement});
+                        }
+                    },
+                    width: 640,
+                    height: 480
+                });
+
+                await camera.start();
+                
+                loadingOverlay.style.opacity = '0';
+                setTimeout(() => loadingOverlay.style.display = 'none', 500);
+                statusBadge.innerText = '請準備開始跳繩 🚀';
+            } catch (err) {
+                console.error("相機啟動失敗:", err);
+                loadingSpinner.style.display = 'none';
+                loadingText.innerHTML = `
+                    <p class="text-red-400 font-bold mb-2">無法存取相機！</p>
+                    <p class="text-xs text-slate-400">請確認瀏覽器已允許相機權限，或確定網址是 HTTPS。</p>
+                `;
+                startBtn.innerText = '重試';
+                startBtn.classList.remove('hidden');
+            }
+        });
+
+        initAI();
+    </script>
+</body>
+</html>
