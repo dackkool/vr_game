@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>英皇道電車路 2m VR - 陀螺儀視角 + 滑鼠左鍵驅動</title>
+
+  <!-- 載入 Cesium 3D 實景地圖引擎 -->
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Cesium.js"></script>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    html, body, #cesiumContainer { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
+
+    /* HUD 資訊欄 */
+    #hud {
+      position: fixed; top: 12px; left: 12px; z-index: 999;
+      background: rgba(0, 0, 0, 0.85); color: #fff; padding: 12px 16px;
+      border-radius: 12px; font-size: 13px; line-height: 1.6;
+      backdrop-filter: blur(5px); pointer-events: none;
+    }
+
+    /* 啟用/控制按鈕 */
+    .btn-panel {
+      position: fixed; top: 12px; right: 12px; z-index: 999;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .action-btn {
+      background: #007aff; color: white; border: none; padding: 10px 14px;
+      border-radius: 8px; font-weight: bold; font-size: 12px; cursor: pointer;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+    }
+  </style>
+</head>
+<body>
+
+  <div id="hud">
+    <b>📍 東區英皇道電車路 2m 實景 VR</b><br>
+    視角：轉動手機看四周 (陀螺儀)<br>
+    前進：點擊滑鼠左鍵 (Mouse Left Click)<br>
+    即時時速：<span id="speedTxt" style="color:#00ff00; font-weight:bold;">0.0 km/h</span>
+  </div>
+
+  <div class="btn-panel">
+    <button id="gyroBtn" class="action-btn">📱 啟用陀螺儀 VR 視角</button>
+  </div>
+
+  <div id="cesiumContainer"></div>
+
+  <script>
+    // Cesium Ion Access Token
+    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IkRtOUl3Uk1ES2VWMmI2eDMiLCJqdGkiOiI0YzY3N2UxYS0zMzkyLTQxOTItYjZkNi0zZDVhZmUxZDc1MDQiLCJpZCI6NTA3Mzc1LCJzdWIiOiJkYWNra29vbCIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiJWUl9leHAiLCJpYXQiOjE3OTA3NjE5NTZ9.Y8NCHgplk2X4yhZ-D3L6lzzn3E51_iDUVj7-1TfDlnM';
+
+    // 建立 Cesium Viewer，啟用預設地形與全球影像作為備用
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      animation: false, 
+      timeline: false, 
+      baseLayerPicker: false,
+      geocoder: false, 
+      homeButton: false, 
+      sceneModePicker: false,
+      navigationHelpButton: false, 
+      infoBox: false, 
+      selectionIndicator: false,
+      terrain: Cesium.Terrain.fromWorldTerrain()
+    });
+
+    // 關閉預設觸控與旋轉控制
+    viewer.scene.screenSpaceCameraController.enableRotate = false;
+    viewer.scene.screenSpaceCameraController.enableZoom = false;
+
+    // 1. 嘗試載入 Google 實景 3D Tiles，失敗時自動啟用備用地形
+    async function init3D() {
+      try {
+        const tileset = await Cesium.createGooglePhotorealistic3DTileset();
+        viewer.scene.primitives.add(tileset);
+        console.log("Google 3D Tiles 載入成功");
+      } catch (err) { 
+        console.warn("Google 3D Tiles 載入失敗，已切換至標準地形:", err); 
+      }
+    }
+    init3D();
+
+    // 2. 玩家初始位置：東區英皇道電車路（北角/鰂魚涌路段）
+    let playerLon = 114.2093; 
+    let playerLat = 22.2908;
+    const eyeHeight = 2.0; // 固定 2.0 米第一人稱視角
+
+    let gyroHeading = 85.0; // 預設面向英皇道東向
+    let gyroPitch = 0.0;   
+    let currentSpeed = 0.0;
+
+    // 更新攝影機位置與視角
+    function updateCamera() {
+      const cartographic = Cesium.Cartographic.fromDegrees(playerLon, playerLat);
+      // 取得地形高度，若抓不到則預設 5 米
+      const terrainHeight = viewer.scene.sampleHeight(cartographic) || 5.0;
+
+      viewer.camera.setView({
+        destination: Cesium.Cartesian3.fromDegrees(playerLon, playerLat, terrainHeight + eyeHeight),
+        orientation: {
+          heading: Cesium.Math.toRadians(gyroHeading),
+          pitch: Cesium.Math.toRadians(gyroPitch),
+          roll: 0.0
+        }
+      });
+    }
+    setTimeout(updateCamera, 2000); // 延遲 2 秒確保地圖初始化完成
+
+    // 3. 【手機陀螺儀】控制 360 度 VR 視角
+    function handleOrientation(event) {
+      if (event.alpha === null || event.beta === null) return;
+
+      gyroHeading = 360 - event.alpha;
+      gyroPitch = event.beta - 90;
+
+      if (gyroPitch > 85) gyroPitch = 85;
+      if (gyroPitch < -85) gyroPitch = -85;
+
+      updateCamera();
+    }
+
+    // 啟用陀螺儀權限
+    document.getElementById('gyroBtn').addEventListener('click', function() {
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission()
+          .then(resp => {
+            if (resp === 'granted') {
+              window.addEventListener('deviceorientation', handleOrientation, true);
+              this.style.display = 'none';
+            } else { alert('需要陀螺儀權限才能體驗 VR 視角！'); }
+          }).catch(console.error);
+      } else {
+        window.addEventListener('deviceorientation', handleOrientation, true);
+        this.style.display = 'none';
+      }
+    });
+
+    // 4. 【滑鼠左鍵點擊】改用全域 window 監聽，並加上 Console 除錯訊息
+    window.addEventListener('mousedown', (e) => {
+      if (e.button === 0) { // 滑鼠左鍵
+        console.log("滑鼠左鍵點擊成功！當前速度動能增加。");
+        
+        // 增加前進衝量
+        currentSpeed += 0.000008;
+        
+        // 設定最高限速
+        if (currentSpeed > 0.00008) currentSpeed = 0.00008;
+      }
+    });
+
+    // 5. 遊戲物理循環 (自然阻力與前進)
+    const speedTxt = document.getElementById('speedTxt');
+
+    viewer.clock.onTick.addEventListener(() => {
+      if (currentSpeed > 0.0000001) {
+        const rad = Cesium.Math.toRadians(gyroHeading);
+        
+        playerLon += Math.sin(rad) * currentSpeed;
+        playerLat += Math.cos(rad) * currentSpeed;
+
+        updateCamera();
+
+        let kmh = (currentSpeed * 1000000 * 3.6).toFixed(1);
+        speedTxt.innerText = `${kmh} km/h`;
+
+        currentSpeed *= 0.92;
+      } else {
+        speedTxt.innerText = `0.0 km/h`;
+      }
+    });
+  </script>
+</body>
+</html>
