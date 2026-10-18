@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>全球城市單車 VR 漫遊 - 避開建築物</title>
+
+  <!-- 載入 Cesium 3D 實景地圖引擎 -->
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Cesium.js"></script>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    html, body, #cesiumContainer { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
+
+    /* HUD 資訊欄 */
+    #hud {
+      position: fixed; top: 12px; left: 12px; z-index: 999;
+      background: rgba(0, 0, 0, 0.85); color: #fff; padding: 12px 16px;
+      border-radius: 12px; font-size: 13px; line-height: 1.6;
+      backdrop-filter: blur(5px); pointer-events: none;
+    }
+
+    /* 啟用與控制面板 */
+    .btn-panel {
+      position: fixed; top: 12px; right: 12px; z-index: 999;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .action-btn, select.action-btn {
+      background: #007aff; color: white; border: none; padding: 10px 14px;
+      border-radius: 8px; font-weight: bold; font-size: 12px; cursor: pointer;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.4); outline: none; text-align: center;
+    }
+    select.action-btn { background: #333; border: 1px solid #555; max-width: 200px; }
+  </style>
+</head>
+<body>
+
+  <div id="hud">
+    <b>🌍 全球城市單車 1m VR 漫遊</b><br>
+    視角：轉動手機看四周 (陀螺儀)<br>
+    前進：點擊滑鼠左鍵 (Mouse Left Click)<br>
+    即時時速：<span id="speedTxt" style="color:#00ff00; font-weight:bold;">0.0 km/h</span>
+  </div>
+
+  <div class="btn-panel">
+    <button id="gyroBtn" class="action-btn">📱 啟用陀螺儀 VR 視角</button>
+    <!-- 全球 10 大城市下拉選單 -->
+    <select id="routeSelect" class="action-btn">
+      <option value="tko">🇭🇰 香港：將軍澳跨灣連接路</option>
+      <option value="nyc">🇺🇸 紐約：哈德遜河濱海單車徑</option>
+      <option value="paris">🇫🇷 巴黎：塞納河畔</option>
+      <option value="amsterdam">🇳🇱 阿姆斯特丹：紳士運河</option>
+      <option value="sydney">🇦🇺 悉尼：歌劇院海濱大道</option>
+      <option value="tokyo">🇯🇵 東京：隅田公園晴空塔道</option>
+      <option value="london">🇬🇧 倫敦：泰晤士河南岸</option>
+      <option value="venice">🇮🇹 威尼斯：總督宮濱海大道</option>
+      <option value="vancouver">🇨🇦 溫哥華：史丹利公園海堤</option>
+      <option value="singapore">🇸🇬 新加坡：濱海灣花園</option>
+    </select>
+  </div>
+
+  <div id="cesiumContainer"></div>
+
+  <script>
+    // Cesium Ion Access Token
+    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IkRtOUl3Uk1ES2VWMmI2eDMiLCJqdGkiOiI0YzY3N2UxYS0zMzkyLTQxOTItYjZkNi0zZDVhZmUxZDc1MDQiLCJpZCI6NTA3Mzc1LCJzdWIiOiJkYWNra29vbCIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiJWUl9leHAiLCJpYXQiOjE3OTA3NjE5NTZ9.Y8NCHgplk2X4yhZ-D3L6lzzn3E51_iDUVj7-1TfDlnM';
+
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      animation: false, timeline: false, baseLayerPicker: false,
+      geocoder: false, homeButton: false, sceneModePicker: false,
+      navigationHelpButton: false, infoBox: false, selectionIndicator: false
+    });
+
+    viewer.scene.screenSpaceCameraController.enableRotate = false;
+    viewer.scene.screenSpaceCameraController.enableZoom = false;
+
+    // 1. 載入 Google 實景 3D Tiles
+    async function init3D() {
+      try {
+        const tileset = await Cesium.createGooglePhotorealistic3DTileset();
+        viewer.scene.primitives.add(tileset);
+      } catch (err) { console.warn("Google 3D Tiles 載入提示:", err); }
+    }
+    init3D();
+
+    // 2. 全球 10 大美麗市區城市安全座標資料庫（確保全在街道/海濱，不卡大樓）
+    const routes = {
+      tko: { name: "香港：將軍澳跨灣大橋", lon: 114.2562, lat: 22.3045, height: 1.0, heading: 120.0 },
+      nyc: { name: "紐約：哈德遜河濱海", lon: -74.0112, lat: 40.7150, height: 1.0, heading: 15.0 },
+      paris: { name: "巴黎：塞納河畔", lon: 2.2945, lat: 48.8584, height: 1.0, heading: 45.0 },
+      amsterdam: { name: "阿姆斯特丹：紳士運河", lon: 4.8897, lat: 52.3676, height: 1.0, heading: 120.0 },
+      sydney: { name: "悉尼：歌劇院海濱", lon: 151.2153, lat: -33.8568, height: 1.0, heading: 330.0 },
+      tokyo: { name: "東京：隅田公園", lon: 139.8052, lat: 35.7100, height: 1.0, heading: 25.0 },
+      london: { name: "倫敦：泰晤士河南岸", lon: -0.1195, lat: 51.5033, height: 1.0, heading: 70.0 },
+      venice: { name: "威尼斯：濱海大道", lon: 12.3431, lat: 45.4338, height: 1.0, heading: 110.0 },
+      vancouver: { name: "溫哥華：史丹利公園海堤", lon: -123.1385, lat: 49.3017, height: 1.0, heading: 200.0 },
+      singapore: { name: "新加坡：濱海灣花園", lon: 103.8636, lat: 1.2816, height: 1.0, heading: 220.0 }
+    };
+
+    let currentRouteKey = 'tko';
+    let playerLon = routes[currentRouteKey].lon;
+    let playerLat = routes[currentRouteKey].lat;
+    const eyeHeight = routes[currentRouteKey].height;
+
+    let gyroHeading = routes[currentRouteKey].heading;
+    let gyroPitch = 0.0;   
+    let currentSpeed = 0.0;
+
+    // 更新攝影機位置
+    function updateCamera() {
+      viewer.camera.setView({
+        destination: Cesium.Cartesian3.fromDegrees(playerLon, playerLat, eyeHeight),
+        orientation: {
+          heading: Cesium.Math.toRadians(gyroHeading),
+          pitch: Cesium.Math.toRadians(gyroPitch),
+          roll: 0.0
+        }
+      });
+    }
+    updateCamera();
+
+    // 監聽城市切換選單
+    document.getElementById('routeSelect').addEventListener('change', (e) => {
+      const selectedKey = e.target.value;
+      if (routes[selectedKey]) {
+        currentRouteKey = selectedKey;
+        playerLon = routes[selectedKey].lon;
+        playerLat = routes[selectedKey].lat;
+        gyroHeading = routes[selectedKey].heading;
+        currentSpeed = 0.0; // 切換城市時重設速度
+        updateCamera();
+      }
+    });
+
+    // 3. 【手機陀螺儀】控制 360 度 VR 視角
+    function handleOrientation(event) {
+      if (event.alpha === null || event.beta === null) return;
+
+      gyroHeading = 360 - event.alpha;
+      gyroPitch = event.beta - 90;
+
+      if (gyroPitch > 85) gyroPitch = 85;
+      if (gyroPitch < -85) gyroPitch = -85;
+
+      updateCamera();
+    }
+
+    // 啟用陀螺儀權限
+    document.getElementById('gyroBtn').addEventListener('click', function() {
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission()
+          .then(resp => {
+            if (resp === 'granted') {
+              window.addEventListener('deviceorientation', handleOrientation, true);
+              this.style.display = 'none';
+            } else { alert('需要陀螺儀權限才能體驗 VR 視角！'); }
+          }).catch(console.error);
+      } else {
+        window.addEventListener('deviceorientation', handleOrientation, true);
+        this.style.display = 'none';
+      }
+    });
+
+    // 4. 【滑鼠左鍵點擊】合理單車加速（最高限速約 35 km/h）
+    const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+    handler.setInputAction((click) => {
+      currentSpeed += 0.0000025;
+      if (currentSpeed > 0.0000095) currentSpeed = 0.0000095;
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+    // 5. 遊戲物理循環 (自然阻力與前進)
+    const speedTxt = document.getElementById('speedTxt');
+
+    viewer.clock.onTick.addEventListener(() => {
+      if (currentSpeed > 0.0000001) {
+        const rad = Cesium.Math.toRadians(gyroHeading);
+        
+        playerLon += Math.sin(rad) * currentSpeed;
+        playerLat += Math.cos(rad) * currentSpeed;
+
+        updateCamera();
+
+        let kmh = (currentSpeed * 1000000 * 3.6).toFixed(1);
+        speedTxt.innerText = `${kmh} km/h`;
+
+        currentSpeed *= 0.94; // 慣性減速
+      } else {
+        speedTxt.innerText = `0.0 km/h`;
+      }
+    });
+  </script>
+</body>
+</html>
