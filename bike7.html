@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>香港全境單車 VR 漫遊 - 地政總署 3D 實景</title>
+
+  <!-- 載入 Cesium 3D 實景地圖引擎 -->
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Cesium.js"></script>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    html, body, #cesiumContainer { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
+
+    /* HUD 資訊欄 */
+    #hud {
+      position: fixed; top: 12px; left: 12px; z-index: 999;
+      background: rgba(0, 0, 0, 0.85); color: #fff; padding: 12px 16px;
+      border-radius: 12px; font-size: 13px; line-height: 1.6;
+      backdrop-filter: blur(5px); pointer-events: none;
+    }
+
+    /* 啟用與控制面板 */
+    .btn-panel {
+      position: fixed; top: 12px; right: 12px; z-index: 999;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .action-btn, select.action-btn {
+      background: #007aff; color: white; border: none; padding: 10px 14px;
+      border-radius: 8px; font-weight: bold; font-size: 12px; cursor: pointer;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.4); outline: none; text-align: center;
+    }
+    select.action-btn { background: #333; border: 1px solid #555; max-width: 220px; }
+  </style>
+</head>
+<body>
+
+  <div id="hud">
+    <b>🇭🇰 香港全境單車 1m VR 漫遊</b><br>
+    視角：轉動手機看四周 (陀螺儀)<br>
+    前進：點擊滑鼠左鍵 (Mouse Left Click)<br>
+    即時時速：<span id="speedTxt" style="color:#00ff00; font-weight:bold;">0.0 km/h</span>
+  </div>
+
+  <div class="btn-panel">
+    <button id="gyroBtn" class="action-btn">📱 啟用陀螺儀 VR 視角</button>
+    <!-- 香港全境單車路線選單 -->
+    <select id="routeSelect" class="action-btn">
+      <option value="tko">🌉 將軍澳跨灣連接路</option>
+      <option value="taimeituk">🌊 大美督水壩 / 吐露港</option>
+      <option value="shatin">🏞️ 沙田城門河單車徑</option>
+      <option value="yuenlong">🌾 屯門至元朗單車主幹道</option>
+      <option value="westkowloon">🏙️ 西九文化區海濱長廊</option>
+      <option value="eastern">🛣️ 東區走廊 / 北角海濱</option>
+    </select>
+  </div>
+
+  <div id="cesiumContainer"></div>
+
+  <script>
+    // Cesium Ion Access Token
+    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IkRtOUl3Uk1ES2VWMmI2eDMiLCJqdGkiOiI0YzY3N2UxYS0zMzkyLTQxOTItYjZkNi0zZDVhZmUxZDc1MDQiLCJpZCI6NTA3Mzc1LCJzdWIiOiJkYWNra29vbCIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiJWUl9leHAiLCJpYXQiOjE3OTA3NjE5NTZ9.Y8NCHgplk2X4yhZ-D3L6lzzn3E51_iDUVj7-1TfDlnM';
+
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      animation: false, timeline: false, baseLayerPicker: false,
+      geocoder: false, homeButton: false, sceneModePicker: false,
+      navigationHelpButton: false, infoBox: false, selectionIndicator: false,
+      terrain: Cesium.Terrain.fromWorldTerrain()
+    });
+
+    viewer.scene.screenSpaceCameraController.enableRotate = false;
+    viewer.scene.screenSpaceCameraController.enableZoom = false;
+
+    let currentTileset = null;
+
+    // 載入香港地政總署官方 3D Tiles 數據
+    async function loadHongKongTileset(tilesetUrl) {
+      if (currentTileset) {
+        viewer.scene.primitives.remove(currentTileset);
+        currentTileset = null;
+      }
+      try {
+        currentTileset = await Cesium.Cesium3DTileset.fromUrl(tilesetUrl);
+        viewer.scene.primitives.add(currentTileset);
+      } catch (err) {
+        console.warn("地政總署 3D 圖資載入提示:", err);
+      }
+    }
+
+    // 香港全境單車路線資料庫（包含精準座標與地政 3D 數據端點）
+    const routes = {
+      tko: { 
+        name: "將軍澳跨灣連接路", 
+        url: "https://mapapi.geodetic.gov.hk/cad/3dtiles/TKO/tileset.json",
+        lon: 114.2562, lat: 22.3045, height: 1.0, heading: 120.0 
+      },
+      taimeituk: { 
+        name: "大美督水壩", 
+        url: "https://mapapi.geodetic.gov.hk/cad/3dtiles/TPO/tileset.json", // 吐露港/大埔區
+        lon: 114.2335, lat: 22.4721, height: 1.0, heading: 45.0 
+      },
+      shatin: { 
+        name: "沙田城門河", 
+        url: "https://mapapi.geodetic.gov.hk/cad/3dtiles/ST/tileset.json", // 沙田區
+        lon: 114.1950, lat: 22.3820, height: 1.0, heading: 150.0 
+      },
+      yuenlong: { 
+        name: "元朗單車主幹道", 
+        url: "https://mapapi.geodetic.gov.hk/cad/3dtiles/YL/tileset.json", // 元朗區
+        lon: 114.0260, lat: 22.4450, height: 1.0, heading: 90.0 
+      },
+      westkowloon: { 
+        name: "西九文化區", 
+        url: "https://mapapi.geodetic.gov.hk/cad/3dtiles/YTM/tileset.json", // 油尖旺區
+        lon: 114.1592, lat: 22.3021, height: 1.0, heading: 110.0 
+      },
+      eastern: { 
+        name: "東區走廊海濱", 
+        url: "https://mapapi.geodetic.gov.hk/cad/3dtiles/E/tileset.json", // 東區
+        lon: 114.2093, lat: 22.2908, height: 1.0, heading: 85.0 
+      }
+    };
+
+    let currentRouteKey = 'tko';
+    let playerLon = routes[currentRouteKey].lon;
+    let playerLat = routes[currentRouteKey].lat;
+    const eyeHeight = routes[currentRouteKey].height;
+
+    let gyroHeading = routes[currentRouteKey].heading;
+    let gyroPitch = 0.0;   
+    let currentSpeed = 0.0;
+
+    // 初始載入將軍澳
+    loadHongKongTileset(routes['tko'].url);
+
+    function updateCamera() {
+      viewer.camera.setView({
+        destination: Cesium.Cartesian3.fromDegrees(playerLon, playerLat, eyeHeight),
+        orientation: {
+          heading: Cesium.Math.toRadians(gyroHeading),
+          pitch: Cesium.Math.toRadians(gyroPitch),
+          roll: 0.0
+        }
+      });
+    }
+    updateCamera();
+
+    // 切換路線選單
+    document.getElementById('routeSelect').addEventListener('change', async (e) => {
+      const selectedKey = e.target.value;
+      if (routes[selectedKey]) {
+        currentRouteKey = selectedKey;
+        playerLon = routes[selectedKey].lon;
+        playerLat = routes[selectedKey].lat;
+        gyroHeading = routes[selectedKey].heading;
+        currentSpeed = 0.0; 
+
+        await loadHongKongTileset(routes[selectedKey].url);
+        updateCamera();
+      }
+    });
+
+    // 陀螺儀 VR 視角控制
+    function handleOrientation(event) {
+      if (event.alpha === null || event.beta === null) return;
+      gyroHeading = 360 - event.alpha;
+      gyroPitch = event.beta - 90;
+      if (gyroPitch > 85) gyroPitch = 85;
+      if (gyroPitch < -85) gyroPitch = -85;
+      updateCamera();
+    }
+
+    document.getElementById('gyroBtn').addEventListener('click', function() {
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission()
+          .then(resp => {
+            if (resp === 'granted') {
+              window.addEventListener('deviceorientation', handleOrientation, true);
+              this.style.display = 'none';
+            } else { alert('需要陀螺儀權限才能體驗 VR 視角！'); }
+          }).catch(console.error);
+      } else {
+        window.addEventListener('deviceorientation', handleOrientation, true);
+        this.style.display = 'none';
+      }
+    });
+
+    // 滑鼠左鍵點擊前進（合理單車極速 35 km/h）
+    const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+    handler.setInputAction((click) => {
+      currentSpeed += 0.0000025;
+      if (currentSpeed > 0.0000095) currentSpeed = 0.0000095;
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+    // 物理引擎迴圈
+    const speedTxt = document.getElementById('speedTxt');
+    viewer.clock.onTick.addEventListener(() => {
+      if (currentSpeed > 0.0000001) {
+        const rad = Cesium.Math.toRadians(gyroHeading);
+        playerLon += Math.sin(rad) * currentSpeed;
+        playerLat += Math.cos(rad) * currentSpeed;
+
+        updateCamera();
+
+        let kmh = (currentSpeed * 1000000 * 3.6).toFixed(1);
+        speedTxt.innerText = `${kmh} km/h`;
+
+        currentSpeed *= 0.94;
+      } else {
+        speedTxt.innerText = `0.0 km/h`;
+      }
+    });
+  </script>
+</body>
+</html>
