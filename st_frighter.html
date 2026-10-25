@@ -182,9 +182,6 @@
                 <button id="btnOpenHelp" class="arcade-btn bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2 px-4 rounded border border-slate-600 text-[10px] uppercase">
                     MOTION GESTURE GUIDE
                 </button>
-                <button id="btnOpenGithubGuide" class="arcade-btn bg-emerald-700 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded border border-emerald-400 text-[10px] uppercase">
-                    DEPLOY TO GITHUB PAGES
-                </button>
             </div>
         </div>
 
@@ -237,23 +234,7 @@
                 SAVE & CONTINUE
             </button>
         </div>
-
-        <!-- GitHub Deployment Guide Modal -->
-        <div id="githubModal" class="absolute inset-0 z-40 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center hidden">
-            <h2 class="text-emerald-400 text-base sm:text-xl font-bold mb-3">HOW TO HOST ON GITHUB PAGES</h2>
-            
-            <div class="text-left text-[10px] sm:text-xs max-w-xl bg-slate-900 p-4 rounded border border-emerald-500/50 mb-4 space-y-2 leading-relaxed">
-                <p>1. Create a new public repository on <span class="text-yellow-300">GitHub.com</span>.</p>
-                <p>2. Create a file named <span class="text-yellow-300">index.html</span> and paste this entire code into it.</p>
-                <p>3. Go to Repository <span class="text-yellow-300">Settings</span> ➔ <span class="text-yellow-300">Pages</span>.</p>
-                <p>4. Set <span class="text-yellow-300">Source</span> to "Deploy from a branch", select <span class="text-yellow-300">main</span> branch / <span class="text-yellow-300">root</span> folder, and click <span class="text-yellow-300">Save</span>.</p>
-                <p>5. Your webcam fighting game is now live and playable at: <br><span class="text-emerald-300 underline">https://yourusername.github.io/your-repo-name/</span></p>
-            </div>
-
-            <button id="btnCloseGithub" class="arcade-btn bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-6 rounded text-xs">
-                BACK
-            </button>
-        </div>
+    
 
         <!-- Game Over Modal -->
         <div id="gameOverOverlay" class="absolute inset-0 z-30 bg-slate-950/90 flex flex-col items-center justify-center p-6 text-center hidden">
@@ -1210,7 +1191,6 @@
             document.getElementById('calibModal').classList.add('hidden');
         });
 
-        document.getElementById('btnOpenGithubGuide').addEventListener('click', () => document.getElementById('githubModal').classList.remove('hidden'));
         document.getElementById('btnCloseGithub').addEventListener('click', () => document.getElementById('githubModal').classList.add('hidden'));
 
         document.getElementById('btnRetry').addEventListener('click', () => {
