@@ -93,7 +93,7 @@
         <!-- Webcam Stream (Hidden Element for MediaPipe input) -->
         <video id="webcamVideo" class="hidden" playsinline></video>
 
-        <!-- Skeleton Overlay Canvas (Top Right PIP or Full Screen Calibration) -->
+        <!-- Skeleton Overlay Canvas (Top Right PIP) -->
         <div id="camFeedContainer" class="absolute top-16 right-4 z-20 w-48 sm:w-64 aspect-video bg-black/80 rounded-lg border-2 border-yellow-500/80 overflow-hidden shadow-xl transition-all">
             <canvas id="skeletonCanvas" class="w-full h-full object-cover scale-x-[-1]"></canvas>
             <div id="camStatus" class="absolute bottom-1 left-1 bg-black/80 text-[8px] px-1.5 py-0.5 rounded text-yellow-400">
@@ -234,7 +234,6 @@
                 SAVE & CONTINUE
             </button>
         </div>
-    
 
         <!-- Game Over Modal -->
         <div id="gameOverOverlay" class="absolute inset-0 z-30 bg-slate-950/90 flex flex-col items-center justify-center p-6 text-center hidden">
@@ -469,9 +468,7 @@
             if (controlMode !== 'MOTION') return;
 
             // Extract Landmark Positions (0..1 normalized coords)
-            const nose = lm[0];
             const leftShoulder = lm[11], rightShoulder = lm[12];
-            const leftElbow = lm[13], rightElbow = lm[14];
             const leftWrist = lm[15], rightWrist = lm[16];
             const leftHip = lm[23], rightHip = lm[24];
             const leftKnee = lm[25], rightKnee = lm[26];
@@ -668,358 +665,456 @@
                     this.comboResetTimer--;
                     if (this.comboResetTimer <= 0) {
                         this.comboCount = 0;
-                        updateComboUI(this === player1 ? 1 : 2, 0);
+                        document.getElementById(this === player1 ? 'p1Combo' : 'p2Combo').style.opacity = '0';
                     }
                 }
 
                 if (this.hitStun > 0) {
                     this.hitStun--;
-                    this.x += this.facing === 'right' ? -1.5 : 1.5;
-                    this.clampPosition();
+                    this.x += (this.facing === 'right' ? -3 : 3);
                     return;
                 }
 
-                this.vy += GRAVITY;
-                this.y += this.vy;
-
-                if (this.y + this.height >= GROUND_Y) {
-                    this.y = GROUND_Y - this.height;
-                    this.vy = 0;
-                    this.isGrounded = true;
-                } else {
-                    this.isGrounded = false;
-                }
-
-                if (!this.isAttacking && this.isGrounded) {
-                    if (this.x < opponent.x) this.facing = 'right';
-                    else this.facing = 'left';
-                }
-
-                this.x += this.vx;
-                this.clampPosition();
-
-                if (this.isAttacking) {
-                    this.attackFrame++;
-                    if (this.attackType === 'special' && this.attackFrame === 10) {
-                        const spawnX = this.facing === 'right' ? this.x + this.width + 10 : this.x - 50;
-                        fireballs.push(new Fireball(spawnX, this.y + 35, this.facing, this === player1 ? 'p1' : 'p2'));
-                        audio.playHadouken();
+                // Gravity physics
+                if (!this.isGrounded) {
+                    this.vy += GRAVITY;
+                    this.y += this.vy;
+                    if (this.y >= GROUND_Y - this.height) {
+                        this.y = GROUND_Y - this.height;
+                        this.vy = 0;
+                        this.isGrounded = true;
                     }
-                    if (this.attackFrame >= 20) {
+                }
+
+                // Attack animation frame countdown
+                if (this.isAttacking) {
+                    this.attackFrame--;
+                    if (this.attackFrame <= 0) {
                         this.isAttacking = false;
                         this.attackType = null;
-                        this.attackFrame = 0;
                         this.hitbox = null;
-                    } else {
-                        this.updateHitbox();
                     }
                 }
 
+                // AI Logic for Player 2
                 if (this.isAI && gameState === 'FIGHTING') {
                     this.updateAI(opponent);
                 }
             }
 
-            clampPosition() {
-                if (this.x < 10) this.x = 10;
-                if (this.x + this.width > CANVAS_WIDTH - 10) this.x = CANVAS_WIDTH - 10 - this.width;
+            updateAI(opponent) {
+                const dist = opponent.x - this.x;
+                this.facing = dist > 0 ? 'right' : 'left';
+
+                if (Math.random() < 0.03 && this.isGrounded && !this.isAttacking) {
+                    const action = Math.random();
+                    if (action < 0.4) this.punch();
+                    else if (action < 0.7) this.kick();
+                    else if (action < 0.9 && this.superMeter >= 35) this.hadouken();
+                    else if (action < 0.95) this.jump();
+                }
+
+                if (Math.abs(dist) > 140) {
+                    this.x += (dist > 0 ? 3.5 : -3.5);
+                } else if (Math.abs(dist) < 80 && Math.random() < 0.02) {
+                    this.x += (dist > 0 ? -3 : 3);
+                }
+
+                // Boundaries
+                if (this.x < 20) this.x = 20;
+                if (this.x > CANVAS_WIDTH - this.width - 20) this.x = CANVAS_WIDTH - this.width - 20;
             }
 
-            updateHitbox() {
-                if (!this.isAttacking) return;
-                let range = 55, height = 30, offsetY = 25;
-                if (this.attackType === 'kick') { range = 75; offsetY = 60; }
-                if (this.attackType === 'special') { this.hitbox = null; return; }
-
-                const hbX = this.facing === 'right' ? this.x + this.width : this.x - range;
-                this.hitbox = {
-                    x: hbX, y: this.y + offsetY, width: range, height: height,
-                    damage: this.attackType === 'kick' ? 12 : 7
-                };
+            move(dir) {
+                if (this.hitStun > 0 || this.isAttacking) return;
+                if (dir === 'left') {
+                    this.x -= this.speed;
+                    this.facing = 'left';
+                } else if (dir === 'right') {
+                    this.x += this.speed;
+                    this.facing = 'right';
+                }
+                if (this.x < 20) this.x = 20;
+                if (this.x > CANVAS_WIDTH - this.width - 20) this.x = CANVAS_WIDTH - this.width - 20;
             }
-
-            moveLeft() {
-                if (this.isAttacking || this.hitStun > 0) return;
-                this.vx = -this.speed;
-                if (this.facing === 'right') this.isBlocking = true;
-            }
-
-            moveRight() {
-                if (this.isAttacking || this.hitStun > 0) return;
-                this.vx = this.speed;
-                if (this.facing === 'left') this.isBlocking = true;
-            }
-
-            stopMoving() { this.vx = 0; this.isBlocking = false; }
 
             jump() {
-                if (this.isGrounded && !this.isAttacking && this.hitStun === 0) {
+                if (this.isGrounded && !this.isCrouching && this.hitStun === 0 && !this.isAttacking) {
                     this.vy = this.jumpStrength;
                     this.isGrounded = false;
                 }
             }
 
-            crouch(isCrouching) {
-                if (this.isGrounded && !this.isAttacking) {
-                    this.isCrouching = isCrouching;
-                    this.height = isCrouching ? 90 : 140;
+            crouch(isDown) {
+                if (!this.isGrounded) return;
+                this.isCrouching = isDown;
+                if (isDown) {
+                    this.height = 100;
+                    this.y = GROUND_Y - this.height;
+                } else {
+                    this.height = 140;
                     this.y = GROUND_Y - this.height;
                 }
             }
 
-            attack(type) {
+            block(isBlock) {
+                if (this.isGrounded) {
+                    this.isBlocking = isBlock;
+                }
+            }
+
+            punch() {
                 if (this.isAttacking || this.hitStun > 0) return;
                 this.isAttacking = true;
-                this.attackType = type;
-                this.attackFrame = 0;
-                if (type === 'punch') audio.playPunch();
-                if (type === 'kick') audio.playKick();
+                this.attackType = 'punch';
+                this.attackFrame = 15;
+                audio.playPunch();
+
+                const hx = this.facing === 'right' ? this.x + this.width : this.x - 45;
+                this.hitbox = { x: hx, y: this.y + 30, w: 45, h: 30, damage: 7, force: 6 };
             }
 
-            takeDamage(amount, attacker) {
-                if (this.isBlocking && !this.isAttacking) {
-                    amount *= 0.15;
+            kick() {
+                if (this.isAttacking || this.hitStun > 0) return;
+                this.isAttacking = true;
+                this.attackType = 'kick';
+                this.attackFrame = 22;
+                audio.playKick();
+
+                const hx = this.facing === 'right' ? this.x + this.width : this.x - 60;
+                this.hitbox = { x: hx, y: this.y + 60, w: 60, h: 35, damage: 12, force: 8 };
+            }
+
+            hadouken() {
+                if (this.superMeter < 35 || this.isAttacking || this.hitStun > 0) return;
+                this.superMeter -= 35;
+                this.isAttacking = true;
+                this.attackType = 'hadouken';
+                this.attackFrame = 25;
+                audio.playHadouken();
+
+                const hx = this.facing === 'right' ? this.x + this.width : this.x - 50;
+                fireballs.push(new Fireball(hx, this.y + 40, this.facing, this === player1 ? 'p1' : 'p2'));
+            }
+
+            takeDamage(damage, force) {
+                if (this.isBlocking) {
+                    damage = Math.floor(damage * 0.25);
+                    this.health -= damage;
+                    this.hitStun = 6;
                     audio.playBlock();
-                    createHitSparks(this.x + this.width / 2, this.y + 40, '#38bdf8');
                 } else {
+                    this.health -= damage;
+                    this.hitStun = 18;
+                    this.isAttacking = false;
+                    this.hitbox = null;
                     audio.playHit();
-                    createHitSparks(this.x + this.width / 2, this.y + 40, '#ef4444');
-                    this.hitStun = 14;
-                    screenShakeTime = 8;
-                    attacker.comboCount++;
-                    attacker.comboResetTimer = 90;
-                    updateComboUI(attacker === player1 ? 1 : 2, attacker.comboCount);
-                    attacker.superMeter = Math.min(100, attacker.superMeter + 10);
-                    updateSuperMeterUI();
+                    createHitSparks(this.x + this.width / 2, this.y + this.height / 2);
+                    screenShakeTime = 12;
                 }
-                this.health = Math.max(0, this.health - amount);
-                updateHealthUI();
-                if (this.health <= 0) audio.playKO();
-            }
-
-            updateAI(opponent) {
-                const dist = Math.abs((this.x + this.width / 2) - (opponent.x + opponent.width / 2));
-                if (Math.random() < 0.05) {
-                    if (dist > 250) {
-                        if (Math.random() < 0.35) this.attack('special');
-                        else {
-                            if (this.x < opponent.x) this.moveRight(); else this.moveLeft();
-                        }
-                    } else if (dist > 70) {
-                        if (this.x < opponent.x) this.moveRight(); else this.moveLeft();
-                        if (Math.random() < 0.2) this.jump();
-                    } else {
-                        this.stopMoving();
-                        const r = Math.random();
-                        if (r < 0.4) this.attack('punch');
-                        else if (r < 0.75) this.attack('kick');
-                        else this.crouch(true);
-                    }
-                }
+                if (this.health < 0) this.health = 0;
             }
 
             draw(ctx) {
                 ctx.save();
-                if (this.hitStun > 0 && Math.floor(Date.now() / 50) % 2 === 0) {
-                    ctx.fillStyle = '#ffffff';
-                } else {
-                    ctx.fillStyle = this.palette.gi;
+                // Fighter Shadow
+                ctx.fillStyle = 'rgba(0,0,0,0.4)';
+                ctx.beginPath();
+                ctx.ellipse(this.x + this.width / 2, GROUND_Y, this.width / 2, 10, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Retro Arcade Style Fighter Sprite Rendering
+                const p = this.palette;
+                ctx.fillStyle = p.gi; // Gi / Outfit Color
+                ctx.fillRect(this.x, this.y + 40, this.width, this.height - 40);
+
+                // Head & Skin
+                ctx.fillStyle = p.skin;
+                ctx.fillRect(this.x + 15, this.y, 40, 40);
+
+                // Headband
+                ctx.fillStyle = p.headband;
+                ctx.fillRect(this.x + 10, this.y + 10, 50, 10);
+
+                // Belt
+                ctx.fillStyle = p.belt;
+                ctx.fillRect(this.x, this.y + 90, this.width, 12);
+
+                // Action Attack Extended Limbs
+                if (this.isAttacking) {
+                    ctx.fillStyle = p.skin;
+                    if (this.attackType === 'punch') {
+                        const px = this.facing === 'right' ? this.x + this.width : this.x - 45;
+                        ctx.fillRect(px, this.y + 45, 45, 20);
+                    } else if (this.attackType === 'kick') {
+                        const kx = this.facing === 'right' ? this.x + this.width : this.x - 60;
+                        ctx.fillRect(kx, this.y + 75, 60, 25);
+                    }
                 }
 
-                const isFlipped = this.facing === 'left';
-                ctx.translate(this.x + this.width / 2, this.y + this.height);
-                if (isFlipped) ctx.scale(-1, 1);
-
-                // Legs
-                ctx.fillStyle = this.palette.pants;
-                if (this.isCrouching) {
-                    ctx.fillRect(-25, -40, 20, 40); ctx.fillRect(5, -40, 20, 40);
-                } else if (this.isAttacking && this.attackType === 'kick' && this.attackFrame > 4 && this.attackFrame < 16) {
-                    ctx.fillRect(-20, -70, 18, 70);
-                    ctx.fillStyle = this.palette.skin;
-                    ctx.fillRect(-5, -80, 70, 20);
-                } else {
-                    ctx.fillRect(-25, -70, 20, 70); ctx.fillRect(5, -70, 20, 70);
-                }
-
-                // Torso
-                ctx.fillStyle = this.palette.gi;
-                const torsoY = this.isCrouching ? -80 : -130;
-                ctx.fillRect(-25, torsoY, 50, 60);
-                ctx.fillStyle = '#000000';
-                ctx.fillRect(-26, torsoY + 55, 52, 8); // Belt
-
-                // Head
-                ctx.fillStyle = this.palette.skin;
-                const headY = torsoY - 30;
-                ctx.fillRect(-15, headY, 30, 30);
-                ctx.fillStyle = this.palette.hair;
-                ctx.fillRect(-17, headY - 5, 34, 12);
-                ctx.fillStyle = this.palette.headband;
-                ctx.fillRect(-18, headY + 5, 36, 6);
-
-                // Arms
-                ctx.fillStyle = this.palette.skin;
-                if (this.isAttacking && this.attackType === 'punch' && this.attackFrame > 3 && this.attackFrame < 15) {
-                    ctx.fillRect(10, torsoY + 15, 55, 18);
-                    ctx.fillStyle = this.palette.headband;
-                    ctx.fillRect(50, torsoY + 12, 20, 24);
-                } else if (this.isAttacking && this.attackType === 'special') {
-                    ctx.fillRect(5, torsoY + 10, 45, 20);
-                    ctx.fillRect(5, torsoY + 30, 45, 20);
-                    ctx.fillStyle = '#38bdf8';
-                    ctx.fillRect(40, torsoY + 15, 20, 30);
-                } else if (this.isBlocking) {
-                    ctx.fillRect(5, torsoY + 5, 20, 45);
-                } else {
-                    ctx.fillRect(10, torsoY + 15, 20, 35);
-                }
+                // Character Name Tag
+                ctx.font = '8px "Press Start 2P"';
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'center';
+                ctx.fillText(this.name, this.x + this.width / 2, this.y - 10);
 
                 ctx.restore();
             }
         }
 
-        // Color Palettes
-        const ryuPalette = { gi: '#f8fafc', pants: '#f8fafc', skin: '#fbcfe8', hair: '#292524', headband: '#dc2626' };
-        const kenPalette = { gi: '#dc2626', pants: '#dc2626', skin: '#fde047', hair: '#eab308', headband: '#1e293b' };
+        // Instantiate Fighters
+        const player1 = new Fighter({
+            x: 250, y: GROUND_Y - 140,
+            color: '#dc2626',
+            palette: { gi: '#ffffff', skin: '#fcd34d', headband: '#dc2626', belt: '#1e3a8a' },
+            name: 'RYU (P1)', facing: 'right'
+        });
 
-        const player1 = new Fighter({ x: 200, y: GROUND_Y - 140, color: 'red', palette: ryuPalette, name: 'RYU', isAI: false, facing: 'right' });
-        const player2 = new Fighter({ x: 750, y: GROUND_Y - 140, color: 'blue', palette: kenPalette, name: 'KEN', isAI: true, facing: 'left' });
+        const player2 = new Fighter({
+            x: 700, y: GROUND_Y - 140,
+            color: '#2563eb',
+            palette: { gi: '#2563eb', skin: '#fcd34d', headband: '#ffffff', belt: '#dc2626' },
+            name: 'KEN (CPU)', isAI: true, facing: 'left'
+        });
 
-        // --- BACKGROUND & STAGE ---
-        function drawStage() {
-            const sky = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
-            sky.addColorStop(0, '#0f172a'); sky.addColorStop(0.6, '#1e1b4b'); sky.addColorStop(1, '#311042');
-            ctx.fillStyle = sky;
-            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        // --- INPUT & CONTROLS LISTENER ---
+        window.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+            audio.init();
 
-            ctx.fillStyle = '#fef08a';
-            ctx.beginPath();
-            ctx.arc(CANVAS_WIDTH / 2, 160, 90, 0, Math.PI * 2);
-            ctx.fill();
+            if (controlMode === 'KEYBOARD' || gameMode === '2P') {
+                if (e.key.toLowerCase() === 'w') player1.jump();
+                if (e.key.toLowerCase() === 's') player1.crouch(true);
+                if (e.key.toLowerCase() === 'j') player1.punch();
+                if (e.key.toLowerCase() === 'k') player1.kick();
+                if (e.key.toLowerCase() === 'l') player1.hadouken();
 
-            ctx.fillStyle = '#090d16';
-            ctx.beginPath();
-            ctx.moveTo(100, GROUND_Y - 80); ctx.lineTo(150, GROUND_Y - 160); ctx.lineTo(200, GROUND_Y - 80);
-            ctx.fill();
-
-            const floorGrad = ctx.createLinearGradient(0, GROUND_Y, 0, CANVAS_HEIGHT);
-            floorGrad.addColorStop(0, '#b45309'); floorGrad.addColorStop(1, '#451a03');
-            ctx.fillStyle = floorGrad;
-            ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
-            ctx.fillStyle = '#dc2626';
-            ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, 6);
-        }
-
-        function checkCollisions() {
-            if (player1.hitbox && player1.isAttacking) {
-                if (isOverlapping(player1.hitbox, player2)) {
-                    player2.takeDamage(player1.hitbox.damage, player1);
-                    player1.hitbox = null;
+                // P2 Keyboard Controls (for 2P mode)
+                if (gameMode === '2P') {
+                    if (e.key === 'ArrowUp') player2.jump();
+                    if (e.key === 'ArrowDown') player2.crouch(true);
+                    if (e.key === 'u') player2.punch();
+                    if (e.key === 'i') player2.kick();
+                    if (e.key === 'o') player2.hadouken();
                 }
             }
-            if (player2.hitbox && player2.isAttacking) {
-                if (isOverlapping(player2.hitbox, player1)) {
-                    player1.takeDamage(player2.hitbox.damage, player1);
+        });
+
+        window.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+            if (e.key.toLowerCase() === 's') player1.crouch(false);
+            if (gameMode === '2P' && e.key === 'ArrowDown') player2.crouch(false);
+        });
+
+        // --- GAME LOOP & COLLISION ENGINE ---
+        function updateGame() {
+            if (gameState !== 'FIGHTING') return;
+
+            // Handle P1 Control input (Motion or Keyboard)
+            if (controlMode === 'MOTION') {
+                if (motionInputs.left) player1.move('left');
+                if (motionInputs.right) player1.move('right');
+                if (motionInputs.jump) player1.jump();
+                player1.crouch(motionInputs.crouch);
+                player1.block((motionInputs.left && player1.facing === 'left') || (motionInputs.right && player1.facing === 'right'));
+                if (motionInputs.punch) player1.punch();
+                if (motionInputs.kick) player1.kick();
+                if (motionInputs.special) player1.hadouken();
+            } else {
+                // Keyboard P1 Mode
+                if (keys['a']) player1.move('left');
+                if (keys['d']) player1.move('right');
+                player1.block((keys['a'] && player1.facing === 'left') || (keys['d'] && player1.facing === 'right'));
+            }
+
+            // Handle P2 Movement in 2P mode
+            if (gameMode === '2P') {
+                if (keys['arrowleft']) player2.move('left');
+                if (keys['arrowright']) player2.move('right');
+            }
+
+            // Update Characters
+            player1.update(player2);
+            player2.update(player1);
+
+            // Update Fireballs
+            fireballs.forEach(fb => fb.update());
+            fireballs = fireballs.filter(fb => fb.active);
+
+            // Check Hitbox Collisions (P1 attacking P2)
+            if (player1.hitbox && player2.hitStun === 0) {
+                const hb = player1.hitbox;
+                if (hb.x < player2.x + player2.width && hb.x + hb.w > player2.x &&
+                    hb.y < player2.y + player2.height && hb.y + hb.h > player2.y) {
+                    player2.takeDamage(hb.damage, hb.force);
+                    player1.superMeter = Math.min(100, player1.superMeter + 15);
+                    player1.hitbox = null; // Prevent multi-hit per swing
+                }
+            }
+
+            // Check Hitbox Collisions (P2 attacking P1)
+            if (player2.hitbox && player1.hitStun === 0) {
+                const hb = player2.hitbox;
+                if (hb.x < player1.x + player1.width && hb.x + hb.w > player1.x &&
+                    hb.y < player1.y + player1.height && hb.y + hb.h > player1.y) {
+                    player1.takeDamage(hb.damage, hb.force);
+                    player2.superMeter = Math.min(100, player2.superMeter + 15);
                     player2.hitbox = null;
                 }
             }
+
+            // Check Fireball Collisions
             fireballs.forEach(fb => {
-                if (!fb.active) return;
                 const target = fb.owner === 'p1' ? player2 : player1;
-                const attacker = fb.owner === 'p1' ? player1 : player2;
-                if (isOverlapping(fb, target)) {
-                    target.takeDamage(15, attacker);
+                if (fb.x < target.x + target.width && fb.x + fb.width > target.x &&
+                    fb.y < target.y + target.height && fb.y + fb.height > target.y) {
+                    target.takeDamage(20, 10);
                     fb.active = false;
-                    createHitSparks(fb.x, fb.y, '#38bdf8');
+                    createHitSparks(target.x + target.width / 2, target.y + target.height / 2, fb.owner === 'p1' ? '#38bdf8' : '#ea580c');
                 }
             });
+
+            // Update HUD UI Elements
+            document.getElementById('p1Health').style.width = player1.health + '%';
+            document.getElementById('p2Health').style.width = player2.health + '%';
+            document.getElementById('p1Meter').style.width = player1.superMeter + '%';
+            document.getElementById('p2Meter').style.width = player2.superMeter + '%';
+
+            // Check Round Win / KO Condition
+            if (player1.health <= 0 || player2.health <= 0) {
+                endRound(player1.health <= 0 ? 'P2' : 'P1');
+            }
         }
 
-        function isOverlapping(r1, r2) {
-            return (r1.x < r2.x + r2.width && r1.x + r1.width > r2.x && r1.y < r2.y + r2.height && r1.y + r1.height > r2.y);
+        function renderScene() {
+            ctx.save();
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            // Screen Shake Effect
+            if (screenShakeTime > 0) {
+                screenShakeTime--;
+                ctx.translate((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10);
+            }
+
+            // Background Arcade Stage: Hong Kong Retro Street at Night
+            const bgGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+            bgGrad.addColorStop(0, '#090d16');
+            bgGrad.addColorStop(0.7, '#1e1b4b');
+            bgGrad.addColorStop(1, '#312e81');
+            ctx.fillStyle = bgGrad;
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            // Neon Arcade Signs & Background Details
+            ctx.fillStyle = '#f43f5e';
+            ctx.fillRect(120, 100, 160, 80);
+            ctx.fillStyle = '#38bdf8';
+            ctx.fillRect(720, 80, 200, 100);
+            ctx.font = '16px "Press Start 2P"';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText('ARCADE 街機', 140, 145);
+            ctx.fillText('FIGHT CLUB', 740, 135);
+
+            // Stage Floor / Ground
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
+            ctx.fillStyle = '#f59e0b';
+            ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, 6);
+
+            // Draw Fighters
+            player1.draw(ctx);
+            player2.draw(ctx);
+
+            // Draw Fireballs & Particles
+            fireballs.forEach(fb => fb.draw(ctx));
+            particles.forEach(pt => { pt.update(); pt.draw(ctx); });
+            particles = particles.filter(pt => pt.life > 0);
+
+            // Draw Overlay Banner Text (ROUND 1, FIGHT, KO)
+            if (overlayText) {
+                ctx.font = 'italic 70px "Teko", sans-serif';
+                ctx.fillStyle = '#fbbf24';
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 6;
+                ctx.textAlign = 'center';
+                ctx.strokeText(overlayText, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
+                ctx.fillText(overlayText, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
+
+                if (overlaySubtext) {
+                    ctx.font = '24px "Press Start 2P"';
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillText(overlaySubtext, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
+                }
+            }
+
+            ctx.restore();
         }
 
-        function updateHealthUI() {
-            const p1Pct = Math.max(0, player1.health);
-            const p2Pct = Math.max(0, player2.health);
-            document.getElementById('p1Health').style.width = `${p1Pct}%`;
-            document.getElementById('p2Health').style.width = `${p2Pct}%`;
-            setTimeout(() => {
-                document.getElementById('p1HealthRed').style.width = `${p1Pct}%`;
-                document.getElementById('p2HealthRed').style.width = `${p2Pct}%`;
-            }, 300);
+        function gameLoop() {
+            updateGame();
+            renderScene();
+            requestAnimationFrame(gameLoop);
         }
 
-        function updateSuperMeterUI() {
-            document.getElementById('p1Meter').style.width = `${player1.superMeter}%`;
-            document.getElementById('p2Meter').style.width = `${player2.superMeter}%`;
-        }
+        // --- GAMEFLOW CONTROL ---
+        function startMatch(mode) {
+            gameMode = mode;
+            audio.init();
+            document.getElementById('menuOverlay').classList.add('hidden');
+            document.getElementById('hud').classList.remove('hidden');
 
-        function updateComboUI(playerNum, count) {
-            const el = document.getElementById(playerNum === 1 ? 'p1Combo' : 'p2Combo');
-            const countEl = document.getElementById(playerNum === 1 ? 'p1ComboCount' : 'p2ComboCount');
-            if (count > 1) { countEl.textContent = count; el.style.opacity = '1'; }
-            else el.style.opacity = '0';
+            p1Wins = 0;
+            p2Wins = 0;
+            roundCount = 1;
+            startRound();
         }
 
         function startRound() {
-            player1.reset(200, 'right');
-            player2.reset(750, 'left');
-            fireballs = []; particles = []; roundTime = 99;
+            player1.reset(250, 'right');
+            player2.reset(700, 'left');
+            roundTime = 99;
             document.getElementById('timer').textContent = roundTime;
-            updateHealthUI(); updateSuperMeterUI();
 
             gameState = 'ROUND_INTRO';
             overlayText = `ROUND ${roundCount}`;
-            overlaySubtext = 'READY...';
+            overlaySubtext = 'FIGHT!';
 
             setTimeout(() => {
-                overlayText = 'FIGHT!';
+                overlayText = '';
                 overlaySubtext = '';
-                audio.playPunch();
-                setTimeout(() => {
-                    gameState = 'FIGHTING';
-                    overlayText = '';
-                    startTimer();
-                }, 800);
-            }, 1200);
+                gameState = 'FIGHTING';
+
+                if (timerInterval) clearInterval(timerInterval);
+                timerInterval = setInterval(() => {
+                    if (gameState === 'FIGHTING') {
+                        roundTime--;
+                        document.getElementById('timer').textContent = roundTime;
+                        if (roundTime <= 0) {
+                            endRound(player1.health >= player2.health ? 'P1' : 'P2');
+                        }
+                    }
+                }, 1000);
+            }, 1800);
         }
 
-        function startTimer() {
-            clearInterval(timerInterval);
-            timerInterval = setInterval(() => {
-                if (gameState === 'FIGHTING') {
-                    roundTime--;
-                    document.getElementById('timer').textContent = roundTime;
-                    if (roundTime <= 0) endRound('TIME OVER');
-                }
-            }, 1000);
-        }
-
-        function endRound(reason) {
-            clearInterval(timerInterval);
+        function endRound(winner) {
             gameState = 'ROUND_OVER';
+            clearInterval(timerInterval);
+            audio.playKO();
 
-            let winner = null;
-            if (player1.health > player2.health) winner = player1;
-            else if (player2.health > player1.health) winner = player2;
-
-            overlayText = reason === 'TIME OVER' ? 'TIME OVER' : 'K.O.';
-
-            if (winner === player1) p1Wins++;
-            else if (winner === player2) p2Wins++;
+            if (winner === 'P1') p1Wins++;
+            else p2Wins++;
 
             document.getElementById('p1Rounds').textContent = `${p1Wins} WINS`;
             document.getElementById('p2Rounds').textContent = `${p2Wins} WINS`;
 
+            overlayText = `${winner} WINS!`;
+            overlaySubtext = 'K.O.';
+
             setTimeout(() => {
                 if (p1Wins >= 2 || p2Wins >= 2) {
                     gameState = 'GAME_OVER';
-                    const finalWinner = p1Wins >= 2 ? 'PLAYER 1' : (gameMode === '1P' ? 'CPU' : 'PLAYER 2');
-                    document.getElementById('winnerText').textContent = `${finalWinner} WINS!`;
-                    document.getElementById('winnerSubtext').textContent = 'CHAMPION VICTORY!';
                     document.getElementById('gameOverOverlay').classList.remove('hidden');
+                    document.getElementById('winnerText').textContent = `${winner === 'P1' ? 'PLAYER 1' : (gameMode === '1P' ? 'CPU' : 'PLAYER 2')} VICTORIOUS!`;
                 } else {
                     roundCount++;
                     startRound();
@@ -1027,163 +1122,37 @@
             }, 2500);
         }
 
-        // Main Input Router (Combines Motion and Keyboard Controls)
-        function processInputs() {
-            if (gameState !== 'FIGHTING') return;
+        // --- UI EVENT LISTENERS ---
+        document.getElementById('btnStartSingle').addEventListener('click', () => startMatch('1P'));
+        document.getElementById('btnStartTwo').addEventListener('click', () => startMatch('2P'));
 
-            // Player 1 Control Processing
-            if (controlMode === 'MOTION') {
-                if (motionInputs.left) player1.moveLeft();
-                else if (motionInputs.right) player1.moveRight();
-                else player1.stopMoving();
-
-                if (motionInputs.jump) player1.jump();
-                player1.crouch(motionInputs.crouch);
-
-                if (motionInputs.special) player1.attack('special');
-                else if (motionInputs.punch) player1.attack('punch');
-                else if (motionInputs.kick) player1.attack('kick');
-            } else { // Keyboard fallback
-                if (keys['KeyA'] || keys['a']) player1.moveLeft();
-                else if (keys['KeyD'] || keys['d']) player1.moveRight();
-                else player1.stopMoving();
-
-                if (keys['KeyW'] || keys['w']) player1.jump();
-                player1.crouch(!!(keys['KeyS'] || keys['s']));
-            }
-
-            // Player 2 Controls (when 2P local mode)
-            if (gameMode === '2P') {
-                if (keys['ArrowLeft']) player2.moveLeft();
-                else if (keys['ArrowRight']) player2.moveRight();
-                else player2.stopMoving();
-
-                if (keys['ArrowUp']) player2.jump();
-                player2.crouch(!!keys['ArrowDown']);
-            }
-        }
-
-        function update() {
-            processInputs();
-
-            player1.update(player2);
-            player2.update(player1);
-
-            fireballs.forEach(fb => fb.update());
-            fireballs = fireballs.filter(fb => fb.active);
-
-            particles.forEach(p => p.update());
-            particles = particles.filter(p => p.life > 0);
-
-            if (gameState === 'FIGHTING') {
-                checkCollisions();
-                if (player1.health <= 0 || player2.health <= 0) endRound('KO');
-            }
-        }
-
-        function render() {
-            ctx.save();
-            if (screenShakeTime > 0) {
-                ctx.translate((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12);
-                screenShakeTime--;
-            }
-
-            drawStage();
-
-            player1.draw(ctx);
-            player2.draw(ctx);
-
-            fireballs.forEach(fb => fb.draw(ctx));
-            particles.forEach(p => p.draw(ctx));
-
-            if (overlayText) {
-                ctx.save();
-                ctx.fillStyle = '#f59e0b';
-                ctx.strokeStyle = '#000000';
-                ctx.lineWidth = 6;
-                ctx.font = '900 52px "Press Start 2P", monospace';
-                ctx.textAlign = 'center';
-                ctx.strokeText(overlayText, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
-                ctx.fillText(overlayText, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
-
-                if (overlaySubtext) {
-                    ctx.font = '700 24px "Press Start 2P", monospace';
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fillText(overlaySubtext, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
-                }
-                ctx.restore();
-            }
-
-            ctx.restore();
-        }
-
-        function gameLoop() {
-            update();
-            render();
-            requestAnimationFrame(gameLoop);
-        }
-
-        // --- EVENT LISTENERS & UI INTERACTION ---
-        window.addEventListener('keydown', e => {
-            audio.init();
-            keys[e.code] = true; keys[e.key] = true;
-
-            if (gameState !== 'FIGHTING') return;
-
-            if (controlMode === 'KEYBOARD') {
-                if (e.code === 'KeyJ') player1.attack('punch');
-                if (e.code === 'KeyK') player1.attack('kick');
-                if (e.code === 'KeyL') player1.attack('special');
-            }
-
-            if (gameMode === '2P') {
-                if (e.code === 'Numpad1' || e.code === 'KeyU') player2.attack('punch');
-                if (e.code === 'Numpad2' || e.code === 'KeyI') player2.attack('kick');
-                if (e.code === 'Numpad3' || e.code === 'KeyO') player2.attack('special');
-            }
-        });
-
-        window.addEventListener('keyup', e => {
-            keys[e.code] = false; keys[e.key] = false;
-        });
-
-        // UI Buttons
-        document.getElementById('btnStartSingle').addEventListener('click', () => {
-            audio.init(); gameMode = '1P'; player2.isAI = true;
-            document.getElementById('menuOverlay').classList.add('hidden');
-            document.getElementById('hud').classList.remove('hidden');
-            p1Wins = 0; p2Wins = 0; roundCount = 1;
-            startRound();
-        });
-
-        document.getElementById('btnStartTwo').addEventListener('click', () => {
-            audio.init(); gameMode = '2P'; player2.isAI = false;
-            document.getElementById('menuOverlay').classList.add('hidden');
-            document.getElementById('hud').classList.remove('hidden');
-            p1Wins = 0; p2Wins = 0; roundCount = 1;
-            startRound();
+        document.getElementById('btnRetry').addEventListener('click', () => {
+            document.getElementById('gameOverOverlay').classList.add('hidden');
+            startMatch(gameMode);
         });
 
         document.getElementById('btnToggleControlMode').addEventListener('click', () => {
             controlMode = controlMode === 'MOTION' ? 'KEYBOARD' : 'MOTION';
-            const btn = document.getElementById('btnToggleControlMode');
-            btn.textContent = `CONTROL: ${controlMode}`;
-            btn.className = controlMode === 'MOTION' 
-                ? 'bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded text-[10px] font-bold border border-indigo-400'
-                : 'bg-slate-700 hover:bg-slate-600 text-yellow-400 px-3 py-1.5 rounded text-[10px] font-bold border border-yellow-400';
+            document.getElementById('btnToggleControlMode').textContent = `CONTROL: ${controlMode} ${controlMode === 'MOTION' ? '(WEBCAM)' : '(KEYS)'}`;
         });
 
         document.getElementById('btnToggleCamFeed').addEventListener('click', () => {
             isCamActive = !isCamActive;
-            document.getElementById('camFeedContainer').style.display = isCamActive ? 'block' : 'none';
+            const container = document.getElementById('camFeedContainer');
+            container.style.display = isCamActive ? 'block' : 'none';
             document.getElementById('btnToggleCamFeed').textContent = `CAM FEED: ${isCamActive ? 'ON' : 'OFF'}`;
         });
 
-        // Modal Controls
-        document.getElementById('btnOpenHelp').addEventListener('click', () => document.getElementById('helpModal').classList.remove('hidden'));
-        document.getElementById('btnCloseHelp').addEventListener('click', () => document.getElementById('helpModal').classList.add('hidden'));
+        document.getElementById('btnOpenHelp').addEventListener('click', () => {
+            document.getElementById('helpModal').classList.remove('hidden');
+        });
+        document.getElementById('btnCloseHelp').addEventListener('click', () => {
+            document.getElementById('helpModal').classList.add('hidden');
+        });
 
-        document.getElementById('btnOpenCalib').addEventListener('click', () => document.getElementById('calibModal').classList.remove('hidden'));
+        document.getElementById('btnOpenCalib').addEventListener('click', () => {
+            document.getElementById('calibModal').classList.remove('hidden');
+        });
         document.getElementById('btnSaveCalib').addEventListener('click', () => {
             sens.punch = parseFloat(document.getElementById('sensPunch').value);
             sens.kick = parseFloat(document.getElementById('sensKick').value);
@@ -1191,18 +1160,11 @@
             document.getElementById('calibModal').classList.add('hidden');
         });
 
-        document.getElementById('btnCloseGithub').addEventListener('click', () => document.getElementById('githubModal').classList.add('hidden'));
-
-        document.getElementById('btnRetry').addEventListener('click', () => {
-            document.getElementById('gameOverOverlay').classList.add('hidden');
-            p1Wins = 0; p2Wins = 0; roundCount = 1;
-            startRound();
+        // Initialize MediaPipe Pose on startup
+        window.addEventListener('load', () => {
+            initMediaPipePose();
+            requestAnimationFrame(gameLoop);
         });
-
-        // Start MediaPipe Pose Detection & Game Engine Loop
-        initMediaPipePose();
-        requestAnimationFrame(gameLoop);
-
     </script>
 </body>
 </html>
