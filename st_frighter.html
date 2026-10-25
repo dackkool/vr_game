@@ -210,7 +210,7 @@
                 <div class="bg-slate-900 p-2.5 rounded border border-blue-500/50">
                     <p class="text-blue-400 font-bold mb-1">🥋 動作招式：</p>
                     <p>• <span class="text-yellow-300">站中間</span>：靜止不動</p>
-                    <p>• <span class="text-yellow-300">身體移向左/右</span>：移動</p>
+                    <p>• <span class="text-yellow-300">身體轉向/移向左或右</span>：決定面向與移動</p>
                     <p>• <span class="text-yellow-300">雙手向前推</span>：波動拳 (Hadouken)</p>
                     <p>• <span class="text-red-400 font-bold">單手高舉</span>：昇龍拳 (Shoryuken)</p>
                 </div>
@@ -464,7 +464,7 @@
             }
         }
 
-        // --- 動作判定 ---
+        // --- 動作與面向判定 ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -500,6 +500,7 @@
             motionInputs.special = false;
             motionInputs.shoryuken = false;
 
+            // 1. 移動控制（站中間則不動，向左/右走）
             const positionOffset = midShoulderX - 0.5;
             if (positionOffset < -sens.position) {
                 motionInputs.right = true; 
@@ -507,10 +508,20 @@
                 motionInputs.left = true;  
             }
 
+            // 2. 根據身體轉向決定角色面向 (Facing)
+            // 當您身體正面朝向右側或向右轉時，角色面向右；反之面向左
+            if (rightShoulder.z < leftShoulder.z - 0.05) {
+                player1.facing = 'right';
+            } else if (leftShoulder.z < rightShoulder.z - 0.05) {
+                player1.facing = 'left';
+            }
+
+            // 3. 下蹲
             if (midHipY > 0.68) {
                 motionInputs.crouch = true;
             }
 
+            // 4. 昇龍拳 / 跳躍
             const isRightHandUpHigh = rightWrist.y < rightShoulder.y - 0.28;
             const isLeftHandUpHigh = leftWrist.y < leftShoulder.y - 0.28;
             if (isRightHandUpHigh || isLeftHandUpHigh) {
@@ -521,19 +532,21 @@
                 }
             }
 
-            // 波動拳判定：只要偵測到雙手合十或向前推，就直接觸發
+            // 5. 波動拳
             const handDistance = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
             const isHandsForward = leftWrist.z < -0.05 || rightWrist.z < -0.05 || (Math.abs(leftWrist.x - leftShoulder.x) > 0.15 && Math.abs(rightWrist.x - rightShoulder.x) > 0.15);
             if (!motionInputs.shoryuken && handDistance < 0.3 && isHandsForward) {
                 motionInputs.special = true;
             }
 
+            // 6. 普通出拳
             const leftArmExtension = Math.abs(leftWrist.x - leftShoulder.x);
             const rightArmExtension = Math.abs(rightWrist.x - rightShoulder.x);
             if (!motionInputs.special && !motionInputs.shoryuken && (leftArmExtension > sens.punch || rightArmExtension > sens.punch)) {
                 motionInputs.punch = true;
             }
 
+            // 7. 踢腿
             if (leftKnee.y < leftHip.y + 0.18 || rightKnee.y < rightHip.y + 0.18) {
                 motionInputs.kick = true;
             }
@@ -677,10 +690,6 @@
             }
 
             update(opponent) {
-                if (opponent) {
-                    this.facing = opponent.x > this.x ? 'right' : 'left';
-                }
-
                 if (this.comboResetTimer > 0) {
                     this.comboResetTimer--;
                     if (this.comboResetTimer <= 0) {
@@ -726,6 +735,8 @@
 
             updateAI(opponent) {
                 const dist = opponent.x - this.x;
+                // AI 自動面向玩家
+                this.facing = opponent.x > this.x ? 'right' : 'left';
 
                 if (Math.random() < 0.03 && this.isGrounded && !this.isAttacking) {
                     const action = Math.random();
@@ -798,7 +809,7 @@
                 this.hitbox = { x: hx, y: this.y + 60, w: 60, h: 35, damage: 13, force: 8 };
             }
 
-            // ⚡ 解除能量條限制：只要系統偵測到就會直接發射波動拳
+            // ⚡ 波動拳動作修復：增加雙手向前推的出招動畫，並射出光球
             hadouken() {
                 if (this.isAttacking || this.hitStun > 0) return;
                 this.isAttacking = true;
@@ -860,6 +871,7 @@
                 ctx.fillStyle = p.belt;
                 ctx.fillRect(this.x, this.y + 85, this.width, 12);
 
+                // 攻擊時的肢體動作動畫繪製
                 if (this.isAttacking) {
                     ctx.fillStyle = p.skin;
                     if (this.attackType === 'punch') {
@@ -868,6 +880,10 @@
                     } else if (this.attackType === 'kick') {
                         const kx = this.facing === 'right' ? this.x + this.width : this.x - 60;
                         ctx.fillRect(kx, this.y + 70, 60, 22);
+                    } else if (this.attackType === 'hadouken') {
+                        // 波動拳雙手向前推動畫
+                        const hx = this.facing === 'right' ? this.x + this.width : this.x - 55;
+                        ctx.fillRect(hx, this.y + 38, 55, 20);
                     } else if (this.attackType === 'shoryuken') {
                         ctx.fillStyle = '#f59e0b';
                         const sx = this.facing === 'right' ? this.x + this.width - 20 : this.x - 20;
@@ -1166,7 +1182,7 @@
             }, 2500);
         }
 
-        // --- UI & MOBILE FULLSCREEN / ZOOM LISTENERS ---
+        // --- UI LISTENERS ---
         document.getElementById('btnStartCam').addEventListener('click', () => {
             initCameraAndPose();
         });
