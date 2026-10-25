@@ -109,8 +109,8 @@
         <div id="motionTriggerBar" class="absolute bottom-3 left-4 z-20 flex flex-wrap gap-1.5 pointer-events-none">
             <span id="badge-left" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">◄ LEFT</span>
             <span id="badge-right" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">RIGHT ►</span>
-            <span id="badge-forward" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">LEAN FWD</span>
             <span id="badge-crouch" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">CROUCH</span>
+            <span id="badge-jump" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">JUMP</span>
             <span id="badge-punch" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">PUNCH</span>
             <span id="badge-kick" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">KICK</span>
             <span id="badge-special" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">HADOUKEN</span>
@@ -196,9 +196,8 @@
             
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left text-[10px] sm:text-xs max-w-2xl mb-4 leading-relaxed">
                 <div class="bg-slate-900 p-3 rounded border border-red-500/50">
-                    <p class="text-red-400 font-bold mb-1">MOVEMENT & BODY:</p>
-                    <p>• <span class="text-yellow-300">Lean Left / Right</span>: Move Character</p>
-                    <p>• <span class="text-yellow-300">Lean Forward (俯身)</span>: Move Forward Fast</p>
+                    <p class="text-red-400 font-bold mb-1">POSITION & MOVEMENT:</p>
+                    <p>• <span class="text-yellow-300">Stand on Left / Right of Camera</span>: Move Character Left / Right</p>
                     <p>• <span class="text-yellow-300">Squat / Lower Hips</span>: Crouch</p>
                 </div>
                 <div class="bg-slate-900 p-3 rounded border border-blue-500/50">
@@ -225,8 +224,8 @@
                     <input type="range" id="sensPunch" min="0.15" max="0.4" step="0.02" value="0.25" class="w-full">
                 </div>
                 <div>
-                    <label class="text-yellow-400 text-[10px] block mb-1">LEAN FORWARD SENSITIVITY (俯身敏感度)</label>
-                    <input type="range" id="sensForward" min="0.1" max="0.35" step="0.02" value="0.2" class="w-full">
+                    <label class="text-yellow-400 text-[10px] block mb-1">POSITION SENSITIVITY (站位判定)</label>
+                    <input type="range" id="sensPosition" min="0.05" max="0.2" step="0.02" value="0.1" class="w-full">
                 </div>
             </div>
 
@@ -394,14 +393,13 @@
 
         const sens = {
             punch: 0.25,
-            forward: 0.2,
-            lean: 0.06
+            position: 0.12, // 鏡頭相對位置判定靈敏度
+            lean: 0.08
         };
 
         const motionInputs = {
             left: false,
             right: false,
-            forward: false,
             crouch: false,
             jump: false,
             punch: false,
@@ -413,8 +411,7 @@
         // --- MEDIAPIPE POSE & WEBCAM ---
         let poseTracker = null;
         let isCamActive = false;
-        let stanceBaseX = 0.5;
-        let baseTorsoLength = null;
+        let centerReferenceX = 0.5; // 身體中心基準點
 
         async function initCameraAndPose() {
             const videoElement = document.getElementById('webcamVideo');
@@ -464,7 +461,7 @@
             }
         }
 
-        // --- POSE RECOGNITION ALGORITHM ---
+        // --- 根據鏡頭相對位置與動作識別 ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -489,12 +486,11 @@
             const leftKnee = lm[25], rightKnee = lm[26];
 
             const midShoulderX = (leftShoulder.x + rightShoulder.x) / 2;
-            const midShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
             const midHipY = (leftHip.y + rightHip.y) / 2;
 
+            // 重置動作
             motionInputs.left = false;
             motionInputs.right = false;
-            motionInputs.forward = false;
             motionInputs.crouch = false;
             motionInputs.jump = false;
             motionInputs.punch = false;
@@ -502,42 +498,45 @@
             motionInputs.special = false;
             motionInputs.shoryuken = false;
 
-            const torsoLength = Math.abs(midHipY - midShoulderY);
-            if (!baseTorsoLength || baseTorsoLength < 0.1) {
-                baseTorsoLength = torsoLength;
+            // 1. 根據你在鏡頭中的「相對左右位置」決定角色移動
+            // 由於視訊鏡頭是鏡像的：你站在鏡頭左側 (midShoulderX < 0.45) ➔ 角色往左走；你站在右側 (midShoulderX > 0.55) ➔ 角色往右走
+            const positionOffset = midShoulderX - 0.5;
+            if (positionOffset < -sens.position) {
+                motionInputs.left = true;
+            } else if (positionOffset > sens.position) {
+                motionInputs.right = true;
             }
 
-            if (torsoLength < baseTorsoLength * 0.75 || leftShoulder.z < -0.25) {
-                motionInputs.forward = true;
+            // 2. 下蹲
+            if (midHipY > 0.68) {
+                motionInputs.crouch = true;
             }
 
-            const leanOffset = midShoulderX - stanceBaseX;
-            if (leanOffset < -sens.lean) motionInputs.left = true;
-            else if (leanOffset > sens.lean) motionInputs.right = true;
-
-            if (midHipY > 0.68) motionInputs.crouch = true;
-
+            // 3. 昇龍拳 (單手高舉過頭)
             const isRightHandUpHigh = rightWrist.y < rightShoulder.y - 0.28;
             const isLeftHandUpHigh = leftWrist.y < leftShoulder.y - 0.28;
-            
-            if ((isRightHandUpHigh || isLeftHandUpHigh) && (motionInputs.forward || midShoulderY < 0.35)) {
-                motionInputs.shoryuken = true;
-            } 
-            else if (isRightHandUpHigh && isLeftHandUpHigh) {
-                motionInputs.jump = true;
+            if (isRightHandUpHigh || isLeftHandUpHigh) {
+                if (leftWrist.y < leftShoulder.y - 0.35 && rightWrist.y < rightShoulder.y - 0.35) {
+                    motionInputs.jump = true;
+                } else {
+                    motionInputs.shoryuken = true;
+                }
             }
 
+            // 4. 波動拳 (雙手合十前推)
             const handDistance = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
             if (!motionInputs.shoryuken && handDistance < 0.12 && leftWrist.y < leftHip.y && rightWrist.y < rightHip.y) {
                 motionInputs.special = true;
             }
 
+            // 5. 出拳 (手臂向前伸出)
             const leftArmExtension = Math.abs(leftWrist.x - leftShoulder.x);
             const rightArmExtension = Math.abs(rightWrist.x - rightShoulder.x);
             if (!motionInputs.special && !motionInputs.shoryuken && (leftArmExtension > sens.punch || rightArmExtension > sens.punch)) {
                 motionInputs.punch = true;
             }
 
+            // 6. 踢腿
             if (leftKnee.y < leftHip.y + 0.18 || rightKnee.y < rightHip.y + 0.18) {
                 motionInputs.kick = true;
             }
@@ -584,8 +583,8 @@
 
             toggleBadge('badge-left', motionInputs.left);
             toggleBadge('badge-right', motionInputs.right);
-            toggleBadge('badge-forward', motionInputs.forward);
             toggleBadge('badge-crouch', motionInputs.crouch);
+            toggleBadge('badge-jump', motionInputs.jump);
             toggleBadge('badge-punch', motionInputs.punch);
             toggleBadge('badge-kick', motionInputs.kick);
             toggleBadge('badge-special', motionInputs.special);
@@ -662,7 +661,7 @@
                 this.palette = palette;
                 this.name = name; this.isAI = isAI;
                 this.vx = 0; this.vy = 0;
-                this.speed = 6.5; this.jumpStrength = -22;
+                this.speed = 6.0; this.jumpStrength = -22;
                 this.facing = facing;
                 this.health = 100; this.superMeter = 0;
                 this.isGrounded = true; this.isCrouching = false;
@@ -741,9 +740,9 @@
                 }
 
                 if (Math.abs(dist) > 140) {
-                    this.x += (dist > 0 ? 3.5 : -3.5);
+                    this.x += (dist > 0 ? 2.5 : -2.5);
                 } else if (Math.abs(dist) < 80 && Math.random() < 0.02) {
-                    this.x += (dist > 0 ? -3 : 3);
+                    this.x += (dist > 0 ? -2 : 2);
                 }
 
                 if (this.x < 20) this.x = 20;
@@ -756,8 +755,6 @@
                     this.x -= this.speed;
                 } else if (dir === 'right') {
                     this.x += this.speed;
-                } else if (dir === 'forward') {
-                    this.x += (this.facing === 'right' ? this.speed * 1.4 : -this.speed * 1.4);
                 }
                 if (this.x < 20) this.x = 20;
                 if (this.x > CANVAS_WIDTH - this.width - 20) this.x = CANVAS_WIDTH - this.width - 20;
@@ -848,31 +845,24 @@
 
             draw(ctx) {
                 ctx.save();
-                // 腳底影子
                 ctx.fillStyle = 'rgba(0,0,0,0.5)';
                 ctx.beginPath();
                 ctx.ellipse(this.x + this.width / 2, GROUND_Y, this.width / 2, 10, 0, 0, Math.PI * 2);
                 ctx.fill();
 
                 const p = this.palette;
-                
-                // 道服主體 (Gi)
                 ctx.fillStyle = p.gi;
                 ctx.fillRect(this.x, this.y + 35, this.width, this.height - 35);
 
-                // 頭部皮膚
                 ctx.fillStyle = p.skin;
                 ctx.fillRect(this.x + 15, this.y + 5, 40, 30);
 
-                // 頭髮 / 頭巾
                 ctx.fillStyle = p.hair;
                 ctx.fillRect(this.x + 10, this.y, 50, 12);
 
-                // 腰帶
                 ctx.fillStyle = p.belt;
                 ctx.fillRect(this.x, this.y + 85, this.width, 12);
 
-                // 攻擊動作肢體
                 if (this.isAttacking) {
                     ctx.fillStyle = p.skin;
                     if (this.attackType === 'punch') {
@@ -888,7 +878,6 @@
                     }
                 }
 
-                // 角色名稱
                 ctx.font = '8px "Press Start 2P"';
                 ctx.fillStyle = '#ffffff';
                 ctx.textAlign = 'center';
@@ -898,14 +887,12 @@
             }
         }
 
-        // Ryu (隆): 白道服, 紅頭巾, 黑腰帶, 黑髮
         const player1 = new Fighter({
             x: 250, y: GROUND_Y - 140,
             palette: { gi: '#f8fafc', skin: '#fcd34d', hair: '#dc2626', belt: '#0f172a' },
             name: 'RYU (P1)', facing: 'right'
         });
 
-        // Ken (肯): 經典紅道服, 金髮, 黑腰帶
         const player2 = new Fighter({
             x: 700, y: GROUND_Y - 140,
             palette: { gi: '#dc2626', skin: '#fcd34d', hair: '#fbbf24', belt: '#0f172a' },
@@ -949,7 +936,6 @@
             if (controlMode === 'MOTION') {
                 if (motionInputs.left) player1.move('left');
                 if (motionInputs.right) player1.move('right');
-                if (motionInputs.forward) player1.move('forward');
                 if (motionInputs.jump) player1.jump();
                 
                 player1.crouch(motionInputs.crouch);
@@ -1015,9 +1001,7 @@
             }
         }
 
-        // --- 繪製香港特色夜景背景 (HONG KONG NIGHT STAGE) ---
         function drawHongKongStage() {
-            // 1. 夜空漸層 (Night Sky)
             const skyGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
             skyGrad.addColorStop(0, '#020617');
             skyGrad.addColorStop(0.5, '#0f172a');
@@ -1025,7 +1009,6 @@
             ctx.fillStyle = skyGrad;
             ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-            // 2. 遠景：維多利亞港摩天大樓剪影 (Hong Kong Skyline)
             ctx.fillStyle = '#090d16';
             const skys = [
                 {x: 50, w: 70, h: 260}, {x: 130, w: 90, h: 320}, {x: 240, w: 60, h: 220},
@@ -1034,7 +1017,6 @@
             ];
             skys.forEach(b => {
                 ctx.fillRect(b.x, GROUND_Y - b.h, b.w, b.h);
-                // 大樓窗戶微光
                 ctx.fillStyle = 'rgba(253, 224, 71, 0.15)';
                 for (let wy = GROUND_Y - b.h + 20; wy < GROUND_Y - 40; wy += 25) {
                     for (let wx = b.x + 10; wx < b.x + b.w - 15; wx += 18) {
@@ -1044,7 +1026,6 @@
                 ctx.fillStyle = '#090d16';
             });
 
-            // 3. 香港經典繁體字霓虹招牌 (Hong Kong Neon Signs)
             const neonSigns = [
                 { x: 100, y: 120, w: 140, h: 55, text: "彌敦道", color: "#f43f5e" },
                 { x: 380, y: 90, w: 160, h: 60, text: "大排檔", color: "#22c55e" },
@@ -1052,7 +1033,6 @@
             ];
 
             neonSigns.forEach(s => {
-                // 外框發光
                 ctx.shadowColor = s.color;
                 ctx.shadowBlur = 15;
                 ctx.strokeStyle = s.color;
@@ -1062,19 +1042,16 @@
                 ctx.fillStyle = "rgba(15, 23, 42, 0.7)";
                 ctx.fillRect(s.x, s.y, s.w, s.h);
 
-                // 霓虹中文字
                 ctx.font = 'bold 22px "Press Start 2P", sans-serif';
                 ctx.fillStyle = s.color;
                 ctx.textAlign = 'center';
                 ctx.fillText(s.text, s.x + s.w / 2, s.y + s.h / 2 + 8);
             });
-            ctx.shadowBlur = 0; // 重置發光效果
+            ctx.shadowBlur = 0;
 
-            // 4. 街道與雙黃線 (Asphalt Road & Yellow Lines)
             ctx.fillStyle = '#0f172a';
             ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
 
-            // 香港道路紅黃邊界線
             ctx.fillStyle = '#eab308';
             ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, 4);
             ctx.fillRect(0, GROUND_Y + 8, CANVAS_WIDTH, 4);
@@ -1089,10 +1066,8 @@
                 ctx.translate((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10);
             }
 
-            // 畫香港夜景舞台
             drawHongKongStage();
 
-            // 畫角色與特效
             player1.draw(ctx);
             player2.draw(ctx);
 
@@ -1225,7 +1200,7 @@
         });
         document.getElementById('btnSaveCalib').addEventListener('click', () => {
             sens.punch = parseFloat(document.getElementById('sensPunch').value);
-            sens.forward = parseFloat(document.getElementById('sensForward').value);
+            sens.position = parseFloat(document.getElementById('sensPosition').value);
             document.getElementById('calibModal').classList.add('hidden');
         });
 
