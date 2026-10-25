@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Street Fighter Motion Arcade - Shoryuken & Lean-Forward Edition</title>
+    <title>Street Fighter Motion Arcade - Hong Kong Edition</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Google Fonts -->
@@ -72,7 +72,7 @@
     <!-- Header Control Toolbar -->
     <div class="w-full max-w-6xl flex flex-wrap justify-between items-center mb-2 px-2 gap-2 text-xs">
         <div class="flex items-center gap-2">
-            <span class="text-yellow-400 font-bold hidden sm:inline">STREET FIGHTER: SHORYUKEN EDITION</span>
+            <span class="text-yellow-400 font-bold hidden sm:inline">STREET FIGHTER: HONG KONG STAGE</span>
             <span class="text-slate-400 text-[10px] bg-slate-800 px-2 py-1 rounded border border-slate-700">MediaPipe AI</span>
         </div>
         <div class="flex items-center gap-2">
@@ -146,7 +146,7 @@
                 <div class="flex-1 flex flex-col items-end">
                     <div class="flex justify-between w-full text-xs sm:text-sm font-bold mb-1 drop-shadow">
                         <span id="p2Rounds" class="text-yellow-400">0 WINS</span>
-                        <span id="p2Name" class="text-blue-400">KEN (CPU)</span>
+                        <span id="p2Name" class="text-red-500">KEN (CPU)</span>
                     </div>
                     <div class="w-full bg-slate-950 border-2 border-yellow-500 h-6 sm:h-8 rounded-sm overflow-hidden relative">
                         <div id="p2HealthRed" class="absolute left-0 top-0 bottom-0 bg-red-600 transition-all duration-300 w-full"></div>
@@ -175,7 +175,7 @@
             <h1 class="title-font text-5xl sm:text-8xl tracking-wider text-yellow-400 italic font-black uppercase leading-none mb-1">
                 STREET FIGHTER
             </h1>
-            <p class="text-red-500 text-xs sm:text-sm tracking-widest mb-6 font-bold animate-pulse">SHORYUKEN & MOTION EDITION</p>
+            <p class="text-red-500 text-xs sm:text-sm tracking-widest mb-6 font-bold animate-pulse">HONG KONG NIGHT STAGE EDITION</p>
 
             <div class="flex flex-col gap-3 w-full max-w-xs">
                 <button id="btnStartSingle" class="arcade-btn bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-6 rounded border-2 border-yellow-400 text-xs sm:text-sm uppercase tracking-wider">
@@ -414,7 +414,7 @@
         let poseTracker = null;
         let isCamActive = false;
         let stanceBaseX = 0.5;
-        let baseTorsoLength = null; // 用於計算身體前傾度
+        let baseTorsoLength = null;
 
         async function initCameraAndPose() {
             const videoElement = document.getElementById('webcamVideo');
@@ -464,7 +464,7 @@
             }
         }
 
-        // --- POSE RECOGNITION WITH LEAN-FORWARD & SHORYUKEN ---
+        // --- POSE RECOGNITION ALGORITHM ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -492,7 +492,6 @@
             const midShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
             const midHipY = (leftHip.y + rightHip.y) / 2;
 
-            // 重置動作觸發標籤
             motionInputs.left = false;
             motionInputs.right = false;
             motionInputs.forward = false;
@@ -503,52 +502,42 @@
             motionInputs.special = false;
             motionInputs.shoryuken = false;
 
-            // 1. 計算身體軀幹垂直長度 (用來判定俯身/前傾)
             const torsoLength = Math.abs(midHipY - midShoulderY);
             if (!baseTorsoLength || baseTorsoLength < 0.1) {
-                baseTorsoLength = torsoLength; // 初始化基準身高距離
+                baseTorsoLength = torsoLength;
             }
 
-            // 2. 檢測身體前傾度 (Lean Forward / 俯身)
-            // 當前傾時，軀幹在 2D 投影中的垂直高度會明顯變短，或者肩膀顯著接近鏡頭 (z 軸變小)
             if (torsoLength < baseTorsoLength * 0.75 || leftShoulder.z < -0.25) {
                 motionInputs.forward = true;
             }
 
-            // 3. 左右平移 (鏡像校正：使用者向左傾斜 -> 角色向左動)
             const leanOffset = midShoulderX - stanceBaseX;
             if (leanOffset < -sens.lean) motionInputs.left = true;
             else if (leanOffset > sens.lean) motionInputs.right = true;
 
-            // 4. 下蹲 (Squat / Crouch)
             if (midHipY > 0.68) motionInputs.crouch = true;
 
-            // 5. 昇龍拳 (Shoryuken) 動作判定：單手高高舉過頭頂，且同時帶有向上跳躍或前衝姿態
             const isRightHandUpHigh = rightWrist.y < rightShoulder.y - 0.28;
             const isLeftHandUpHigh = leftWrist.y < leftShoulder.y - 0.28;
             
             if ((isRightHandUpHigh || isLeftHandUpHigh) && (motionInputs.forward || midShoulderY < 0.35)) {
                 motionInputs.shoryuken = true;
             } 
-            // 6. 普通跳躍 (Both Hands Up)
             else if (isRightHandUpHigh && isLeftHandUpHigh) {
                 motionInputs.jump = true;
             }
 
-            // 7. 波動拳 (Hadouken) - 雙手合十前推
             const handDistance = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
             if (!motionInputs.shoryuken && handDistance < 0.12 && leftWrist.y < leftHip.y && rightWrist.y < rightHip.y) {
                 motionInputs.special = true;
             }
 
-            // 8. 普通出拳 (Punch Forward)
             const leftArmExtension = Math.abs(leftWrist.x - leftShoulder.x);
             const rightArmExtension = Math.abs(rightWrist.x - rightShoulder.x);
             if (!motionInputs.special && !motionInputs.shoryuken && (leftArmExtension > sens.punch || rightArmExtension > sens.punch)) {
                 motionInputs.punch = true;
             }
 
-            // 9. 踢腿 (Kick)
             if (leftKnee.y < leftHip.y + 0.18 || rightKnee.y < rightHip.y + 0.18) {
                 motionInputs.kick = true;
             }
@@ -643,7 +632,7 @@
                     particles.push(new Particle(
                         this.x + (this.direction === 'right' ? 0 : this.width),
                         this.y + Math.random() * this.height,
-                        this.owner === 'p1' ? '#38bdf8' : '#f97316',
+                        this.owner === 'p1' ? '#38bdf8' : '#ef4444',
                         -this.speed * 0.2, (Math.random() - 0.5) * 2,
                         Math.random() * 6 + 4, 10
                     ));
@@ -652,7 +641,7 @@
             }
             draw(ctx) {
                 ctx.save();
-                const color = this.owner === 'p1' ? '#0284c7' : '#ea580c';
+                const color = this.owner === 'p1' ? '#0284c7' : '#dc2626';
                 ctx.fillStyle = color;
                 ctx.beginPath();
                 ctx.ellipse(this.x + this.width / 2, this.y + this.height / 2, this.width / 2, this.height / 2, 0, 0, Math.PI * 2);
@@ -667,10 +656,10 @@
 
         // --- FIGHTER CHARACTER ENGINE ---
         class Fighter {
-            constructor({ x, y, color, palette, name, isAI = false, facing = 'right' }) {
+            constructor({ x, y, palette, name, isAI = false, facing = 'right' }) {
                 this.x = x; this.y = y;
                 this.width = 70; this.height = 140;
-                this.color = color; this.palette = palette;
+                this.palette = palette;
                 this.name = name; this.isAI = isAI;
                 this.vx = 0; this.vy = 0;
                 this.speed = 6.5; this.jumpStrength = -22;
@@ -692,7 +681,6 @@
             }
 
             update(opponent) {
-                // 自動更新面向方向（永遠朝向對手）
                 if (opponent) {
                     this.facing = opponent.x > this.x ? 'right' : 'left';
                 }
@@ -723,7 +711,6 @@
 
                 if (this.isAttacking) {
                     this.attackFrame--;
-                    // 昇龍拳空中升騰動力
                     if (this.attackType === 'shoryuken') {
                         this.vy = -12;
                         this.x += (this.facing === 'right' ? 5 : -5);
@@ -770,7 +757,6 @@
                 } else if (dir === 'right') {
                     this.x += this.speed;
                 } else if (dir === 'forward') {
-                    // 身體前傾向敵人突進
                     this.x += (this.facing === 'right' ? this.speed * 1.4 : -this.speed * 1.4);
                 }
                 if (this.x < 20) this.x = 20;
@@ -793,12 +779,6 @@
                 } else {
                     this.height = 140;
                     this.y = GROUND_Y - this.height;
-                }
-            }
-
-            block(isBlock) {
-                if (this.isGrounded) {
-                    this.isBlocking = isBlock;
                 }
             }
 
@@ -836,14 +816,13 @@
                 fireballs.push(new Fireball(hx, this.y + 40, this.facing, this === player1 ? 'p1' : 'p2'));
             }
 
-            // --- 新增：昇龍拳 (SHORYUKEN) ---
             shoryuken() {
                 if (this.isAttacking || this.hitStun > 0) return;
                 this.isAttacking = true;
                 this.attackType = 'shoryuken';
                 this.attackFrame = 24;
                 this.isGrounded = false;
-                this.vy = -16; // 向上躍起
+                this.vy = -16;
                 audio.playShoryuken();
 
                 const hx = this.facing === 'right' ? this.x + this.width - 20 : this.x - 50;
@@ -869,40 +848,47 @@
 
             draw(ctx) {
                 ctx.save();
-                ctx.fillStyle = 'rgba(0,0,0,0.4)';
+                // 腳底影子
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
                 ctx.beginPath();
                 ctx.ellipse(this.x + this.width / 2, GROUND_Y, this.width / 2, 10, 0, 0, Math.PI * 2);
                 ctx.fill();
 
                 const p = this.palette;
+                
+                // 道服主體 (Gi)
                 ctx.fillStyle = p.gi;
-                ctx.fillRect(this.x, this.y + 40, this.width, this.height - 40);
+                ctx.fillRect(this.x, this.y + 35, this.width, this.height - 35);
 
+                // 頭部皮膚
                 ctx.fillStyle = p.skin;
-                ctx.fillRect(this.x + 15, this.y, 40, 40);
+                ctx.fillRect(this.x + 15, this.y + 5, 40, 30);
 
-                ctx.fillStyle = p.headband;
-                ctx.fillRect(this.x + 10, this.y + 10, 50, 10);
+                // 頭髮 / 頭巾
+                ctx.fillStyle = p.hair;
+                ctx.fillRect(this.x + 10, this.y, 50, 12);
 
+                // 腰帶
                 ctx.fillStyle = p.belt;
-                ctx.fillRect(this.x, this.y + 90, this.width, 12);
+                ctx.fillRect(this.x, this.y + 85, this.width, 12);
 
+                // 攻擊動作肢體
                 if (this.isAttacking) {
                     ctx.fillStyle = p.skin;
                     if (this.attackType === 'punch') {
                         const px = this.facing === 'right' ? this.x + this.width : this.x - 45;
-                        ctx.fillRect(px, this.y + 45, 45, 20);
+                        ctx.fillRect(px, this.y + 40, 45, 18);
                     } else if (this.attackType === 'kick') {
                         const kx = this.facing === 'right' ? this.x + this.width : this.x - 60;
-                        ctx.fillRect(kx, this.y + 75, 60, 25);
+                        ctx.fillRect(kx, this.y + 70, 60, 22);
                     } else if (this.attackType === 'shoryuken') {
-                        // 昇龍拳向上高舉手臂動畫
                         ctx.fillStyle = '#f59e0b';
                         const sx = this.facing === 'right' ? this.x + this.width - 20 : this.x - 20;
                         ctx.fillRect(sx, this.y - 35, 30, 70);
                     }
                 }
 
+                // 角色名稱
                 ctx.font = '8px "Press Start 2P"';
                 ctx.fillStyle = '#ffffff';
                 ctx.textAlign = 'center';
@@ -912,21 +898,21 @@
             }
         }
 
+        // Ryu (隆): 白道服, 紅頭巾, 黑腰帶, 黑髮
         const player1 = new Fighter({
             x: 250, y: GROUND_Y - 140,
-            color: '#dc2626',
-            palette: { gi: '#ffffff', skin: '#fcd34d', headband: '#dc2626', belt: '#1e3a8a' },
+            palette: { gi: '#f8fafc', skin: '#fcd34d', hair: '#dc2626', belt: '#0f172a' },
             name: 'RYU (P1)', facing: 'right'
         });
 
+        // Ken (肯): 經典紅道服, 金髮, 黑腰帶
         const player2 = new Fighter({
             x: 700, y: GROUND_Y - 140,
-            color: '#2563eb',
-            palette: { gi: '#2563eb', skin: '#fcd34d', headband: '#ffffff', belt: '#dc2626' },
+            palette: { gi: '#dc2626', skin: '#fcd34d', hair: '#fbbf24', belt: '#0f172a' },
             name: 'KEN (CPU)', isAI: true, facing: 'left'
         });
 
-        // --- INPUT & CONTROLS LISTENERS ---
+        // --- INPUT LISTENERS ---
         window.addEventListener('keydown', (e) => {
             keys[e.key.toLowerCase()] = true;
             audio.init();
@@ -956,7 +942,7 @@
             if (gameMode === '2P' && e.key === 'ArrowDown') player2.crouch(false);
         });
 
-        // --- GAME LOOP & COLLISION ENGINE ---
+        // --- GAME LOOP & HONG KONG STAGE RENDER ---
         function updateGame() {
             if (gameState !== 'FIGHTING') return;
 
@@ -988,7 +974,7 @@
             fireballs.forEach(fb => fb.update());
             fireballs = fireballs.filter(fb => fb.active);
 
-            // 攻擊判定 - P1
+            // 攻擊碰撞判定
             if (player1.hitbox && player2.hitStun === 0) {
                 const hb = player1.hitbox;
                 if (hb.x < player2.x + player2.width && hb.x + hb.w > player2.x &&
@@ -999,7 +985,6 @@
                 }
             }
 
-            // 攻擊判定 - P2
             if (player2.hitbox && player1.hitStun === 0) {
                 const hb = player2.hitbox;
                 if (hb.x < player1.x + player1.width && hb.x + hb.w > player1.x &&
@@ -1016,7 +1001,7 @@
                     fb.y < target.y + target.height && fb.y + fb.height > target.y) {
                     target.takeDamage(20, 10);
                     fb.active = false;
-                    createHitSparks(target.x + target.width / 2, target.y + target.height / 2, fb.owner === 'p1' ? '#38bdf8' : '#ea580c');
+                    createHitSparks(target.x + target.width / 2, target.y + target.height / 2, fb.owner === 'p1' ? '#38bdf8' : '#dc2626');
                 }
             });
 
@@ -1030,6 +1015,71 @@
             }
         }
 
+        // --- 繪製香港特色夜景背景 (HONG KONG NIGHT STAGE) ---
+        function drawHongKongStage() {
+            // 1. 夜空漸層 (Night Sky)
+            const skyGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+            skyGrad.addColorStop(0, '#020617');
+            skyGrad.addColorStop(0.5, '#0f172a');
+            skyGrad.addColorStop(1, '#1e1b4b');
+            ctx.fillStyle = skyGrad;
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            // 2. 遠景：維多利亞港摩天大樓剪影 (Hong Kong Skyline)
+            ctx.fillStyle = '#090d16';
+            const skys = [
+                {x: 50, w: 70, h: 260}, {x: 130, w: 90, h: 320}, {x: 240, w: 60, h: 220},
+                {x: 310, w: 110, h: 360}, {x: 440, w: 80, h: 280}, {x: 540, w: 100, h: 340},
+                {x: 660, w: 75, h: 250}, {x: 750, w: 120, h: 380}, {x: 890, w: 80, h: 290}
+            ];
+            skys.forEach(b => {
+                ctx.fillRect(b.x, GROUND_Y - b.h, b.w, b.h);
+                // 大樓窗戶微光
+                ctx.fillStyle = 'rgba(253, 224, 71, 0.15)';
+                for (let wy = GROUND_Y - b.h + 20; wy < GROUND_Y - 40; wy += 25) {
+                    for (let wx = b.x + 10; wx < b.x + b.w - 15; wx += 18) {
+                        if (Math.random() > 0.3) ctx.fillRect(wx, wy, 8, 12);
+                    }
+                }
+                ctx.fillStyle = '#090d16';
+            });
+
+            // 3. 香港經典繁體字霓虹招牌 (Hong Kong Neon Signs)
+            const neonSigns = [
+                { x: 100, y: 120, w: 140, h: 55, text: "彌敦道", color: "#f43f5e" },
+                { x: 380, y: 90, w: 160, h: 60, text: "大排檔", color: "#22c55e" },
+                { x: 720, y: 110, w: 150, h: 55, text: "武館 功夫", color: "#eab308" }
+            ];
+
+            neonSigns.forEach(s => {
+                // 外框發光
+                ctx.shadowColor = s.color;
+                ctx.shadowBlur = 15;
+                ctx.strokeStyle = s.color;
+                ctx.lineWidth = 3;
+                ctx.strokeRect(s.x, s.y, s.w, s.h);
+
+                ctx.fillStyle = "rgba(15, 23, 42, 0.7)";
+                ctx.fillRect(s.x, s.y, s.w, s.h);
+
+                // 霓虹中文字
+                ctx.font = 'bold 22px "Press Start 2P", sans-serif';
+                ctx.fillStyle = s.color;
+                ctx.textAlign = 'center';
+                ctx.fillText(s.text, s.x + s.w / 2, s.y + s.h / 2 + 8);
+            });
+            ctx.shadowBlur = 0; // 重置發光效果
+
+            // 4. 街道與雙黃線 (Asphalt Road & Yellow Lines)
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
+
+            // 香港道路紅黃邊界線
+            ctx.fillStyle = '#eab308';
+            ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, 4);
+            ctx.fillRect(0, GROUND_Y + 8, CANVAS_WIDTH, 4);
+        }
+
         function renderScene() {
             ctx.save();
             ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -1039,27 +1089,10 @@
                 ctx.translate((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10);
             }
 
-            const bgGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
-            bgGrad.addColorStop(0, '#090d16');
-            bgGrad.addColorStop(0.7, '#1e1b4b');
-            bgGrad.addColorStop(1, '#312e81');
-            ctx.fillStyle = bgGrad;
-            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            // 畫香港夜景舞台
+            drawHongKongStage();
 
-            ctx.fillStyle = '#f43f5e';
-            ctx.fillRect(120, 100, 160, 80);
-            ctx.fillStyle = '#38bdf8';
-            ctx.fillRect(720, 80, 200, 100);
-            ctx.font = '16px "Press Start 2P"';
-            ctx.fillStyle = '#ffffff';
-            ctx.fillText('ARCADE 街機', 140, 145);
-            ctx.fillText('FIGHT CLUB', 740, 135);
-
-            ctx.fillStyle = '#0f172a';
-            ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
-            ctx.fillStyle = '#f59e0b';
-            ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, 6);
-
+            // 畫角色與特效
             player1.draw(ctx);
             player2.draw(ctx);
 
@@ -1162,7 +1195,7 @@
             }, 2500);
         }
 
-        // --- UI EVENT LISTENERS ---
+        // --- UI LISTENERS ---
         document.getElementById('btnStartCam').addEventListener('click', () => {
             initCameraAndPose();
         });
@@ -1196,7 +1229,6 @@
             document.getElementById('calibModal').classList.add('hidden');
         });
 
-        // Initialize Render Loop
         window.addEventListener('load', () => {
             requestAnimationFrame(gameLoop);
         });
