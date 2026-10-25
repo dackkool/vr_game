@@ -1077,12 +1077,12 @@
 
             fireballs.forEach(fb => fb.update());
 
-            // 波動拳空中抵消
+            // 波動拳空中抵消（加上安全檢查防當機）
             for (let i = 0; i < fireballs.length; i++) {
                 for (let j = i + 1; j < fireballs.length; j++) {
                     const fb1 = fireballs[i];
                     const fb2 = fireballs[j];
-                    if (fb1.active && fb2.active && fb1.owner !== fb2.owner) {
+                    if (fb1 && fb2 && fb1.active && fb2.active && fb1.owner !== fb2.owner) {
                         if (Math.abs(fb1.x - fb2.x) < 40) {
                             fb1.active = false;
                             fb2.active = false;
@@ -1093,7 +1093,7 @@
                 }
             }
 
-            fireballs = fireballs.filter(fb => fb.active);
+            fireballs = fireballs.filter(fb => fb && fb.active);
 
             // 攻擊傷害判定
             if (player1.hitbox && player2.hitStun === 0) {
@@ -1116,8 +1116,9 @@
                 }
             }
 
+            // 波動拳擊中判定（已修復並加固，防止 Hang 機）
             fireballs.forEach(fb => {
-                if (!fb.active) return;
+                if (!fb || !fb.active) return;
                 const target = fb.owner === 'p1' ? player2 : player1;
                 if (target && fb.x < target.x + target.width && fb.x + fb.width > target.x &&
                     fb.y < target.y + target.height && fb.y + fb.height > target.y) {
@@ -1207,7 +1208,7 @@
             player1.draw(ctx);
             player2.draw(ctx);
 
-            fireballs.forEach(fb => fb.draw(ctx));
+            fireballs.forEach(fb => { if(fb) fb.draw(ctx); });
             particles.forEach(pt => { pt.update(); pt.draw(ctx); });
             particles = particles.filter(pt => pt.life > 0);
 
@@ -1325,4 +1326,35 @@
         });
 
         document.getElementById('btnFullscreen').addEventListener('click', () => {
-            if (!document
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {});
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+            setTimeout(resizeGame, 300);
+        });
+
+        document.getElementById('btnOpenHelp').addEventListener('click', () => {
+            document.getElementById('helpModal').classList.remove('hidden');
+        });
+        document.getElementById('btnCloseHelp').addEventListener('click', () => {
+            document.getElementById('helpModal').classList.add('hidden');
+        });
+
+        document.getElementById('btnOpenCalib').addEventListener('click', () => {
+            document.getElementById('calibModal').classList.remove('hidden');
+        });
+        document.getElementById('btnSaveCalib').addEventListener('click', () => {
+            sens.punch = parseFloat(document.getElementById('sensPunch').value);
+            document.getElementById('calibModal').classList.add('hidden');
+        });
+
+        window.addEventListener('load', () => {
+            resizeGame();
+            requestAnimationFrame(gameLoop);
+        });
+    </script>
+</body>
+</html>
