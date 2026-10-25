@@ -76,7 +76,7 @@
 </head>
 <body class="relative crt text-white">
 
-    <!-- Header Control Toolbar -->
+    <!-- Header Control Toolbar (Removed Zoom) -->
     <div id="toolbar" class="w-full max-w-6xl flex flex-wrap justify-between items-center px-3 py-1 gap-1 text-[10px] z-20">
         <div class="flex items-center gap-1.5">
             <span class="text-yellow-400 font-bold hidden md:inline">STREET FIGHTER: HK STAGE</span>
@@ -206,15 +206,13 @@
             
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left text-[9px] sm:text-[11px] max-w-xl mb-3 leading-relaxed">
                 <div class="bg-slate-900 p-2.5 rounded border border-red-500/50">
-                    <p class="text-red-400 font-bold mb-1">📱 位置跟隨控制：</p>
-                    <p>• 在鏡頭前<span class="text-yellow-300">左右移動位置</span>，Ryu 就會自動走到對應的 X 座標。</p>
+                    <p class="text-red-400 font-bold mb-1">📱 移動與面向控制：</p>
+                    <p>• 左右移動身體對應遊戲位置。</p>
                     <p>• <span class="text-yellow-300">身體轉向</span>決定 Ryu 面向。</p>
                 </div>
                 <div class="bg-slate-900 p-2.5 rounded border border-blue-500/50">
-                    <p class="text-blue-400 font-bold mb-1">🥋 動作招式：</p>
-                    <p>• <span class="text-yellow-300">出拳 / 踢腿</span>：伸展手臂或抬腿</p>
-                    <p>• <span class="text-yellow-300">雙手向前推</span>：波動拳（面向哪邊就向哪邊發射）</p>
-                    <p>• <span class="text-red-400 font-bold">單手高舉</span>：昇龍拳</p>
+                    <p class="text-blue-400 font-bold mb-1">🥋 波動拳必殺技：</p>
+                    <p>• <span class="text-yellow-300">雙手在胸前合起</span>（蓄力），然後<span class="text-yellow-300">向左或向右急速推開</span>發射波動拳！</p>
                 </div>
             </div>
 
@@ -230,7 +228,7 @@
             <div class="flex flex-col gap-2 w-full max-w-xs text-left text-xs mb-4">
                 <div>
                     <label class="text-yellow-400 text-[10px] block mb-1">ARM PUNCH SENSITIVITY</label>
-                    <input type="range" id="sensPunch" min="0.15" max="0.4" step="0.02" value="0.28" class="w-full">
+                    <input type="range" id="sensPunch" min="0.2" max="0.5" step="0.02" value="0.32" class="w-full">
                 </div>
             </div>
 
@@ -255,14 +253,12 @@
 
     <!-- Game Engine & MediaPipe AI Logic -->
     <script>
-        // --- 自動適應螢幕大小縮放（確保完整顯示整個遊戲畫面） ---
+        // --- 螢幕適應響應式縮放 ---
         function resizeGame() {
             const wrapper = document.getElementById('gameWrapper');
             const toolbar = document.getElementById('toolbar');
-            
             const windowWidth = window.innerWidth;
             const windowHeight = window.innerHeight - toolbar.offsetHeight - 10;
-            
             const targetAspect = 16 / 9;
             
             let w = windowWidth;
@@ -420,8 +416,8 @@
         let fireballs = [];
         const keys = {};
 
-        const sens = {
-            punch: 0.28
+        let sens = {
+            punch: 0.32
         };
 
         const motionInputs = {
@@ -433,6 +429,9 @@
             shoryuken: false,
             targetXRatio: 0.3
         };
+
+        // 用於波動拳蓄力偵測狀態機 (State Machine)
+        let hadoukenState = 'IDLE'; // 'IDLE' -> 'CHARGED' (雙手靠攏) -> 發射
 
         let poseTracker = null;
         let isCamActive = false;
@@ -485,7 +484,7 @@
             }
         }
 
-        // --- 根據鏡頭相對位置與同向出招判定 ---
+        // --- 修正面向、出招判定與雙手合起波動拳機制 ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -520,14 +519,14 @@
             motionInputs.shoryuken = false;
 
             // 1. 位置對應
-            const previewXRatio = 1.0 - midShoulderX; 
+            const previewXRatio = midShoulderX; 
             motionInputs.targetXRatio = Math.max(0.0, Math.min(1.0, previewXRatio));
 
-            // 2. 面向同步（預覽中右邊對應右邊，左邊對應左邊）
-            if (rightShoulder.z < leftShoulder.z - 0.05) {
-                player1.facing = 'left'; 
-            } else if (leftShoulder.z < rightShoulder.z - 0.05) {
-                player1.facing = 'right';
+            // 2. 修正面向：預覽畫面中肩膀右邊在前面代表面向右，左邊在前面代表面向左
+            if (rightShoulder.z < leftShoulder.z - 0.04) {
+                player1.facing = 'right'; 
+            } else if (leftShoulder.z < rightShoulder.z - 0.04) {
+                player1.facing = 'left';
             }
 
             // 3. 下蹲
@@ -546,23 +545,30 @@
                 }
             }
 
-            // 5. 波動拳（嚴格雙手向前推判定）
+            // 5. 波動拳精準判定：雙手必須先合起（距離靠近），再向外推開
             const handDistance = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
-            const isBothHandsForward = leftWrist.z < -0.15 && rightWrist.z < -0.15;
-            if (!motionInputs.shoryuken && handDistance < 0.25 && isBothHandsForward) {
-                motionInputs.special = true;
+            const isHandsForward = leftWrist.z < -0.1 && rightWrist.z < -0.1;
+
+            if (handDistance < 0.22 && isHandsForward) {
+                hadoukenState = 'CHARGED'; // 雙手合起蓄力
+            } else if (hadoukenState === 'CHARGED' && handDistance > 0.35 && isHandsForward) {
+                motionInputs.special = true; // 從合起變成向前推開 -> 釋放波動拳！
+                hadoukenState = 'IDLE';
+            } else if (handDistance > 0.5) {
+                hadoukenState = 'IDLE';
             }
 
-            // 6. 普通出拳
+            // 6. 普通出拳與踢腿（加上互斥判定，避免出拳誤觸踢腿）
             const leftArmExtension = Math.abs(leftWrist.x - leftShoulder.x);
             const rightArmExtension = Math.abs(rightWrist.x - rightShoulder.x);
-            if (!motionInputs.special && !motionInputs.shoryuken && (leftArmExtension > sens.punch || rightArmExtension > sens.punch)) {
-                motionInputs.punch = true;
-            }
+            const isKicking = leftKnee.y < leftHip.y + 0.18 || rightKnee.y < rightHip.y + 0.18;
 
-            // 7. 踢腿
-            if (leftKnee.y < leftHip.y + 0.18 || rightKnee.y < rightHip.y + 0.18) {
-                motionInputs.kick = true;
+            if (!motionInputs.special && !motionInputs.shoryuken) {
+                if (isKicking) {
+                    motionInputs.kick = true;
+                } else if (leftArmExtension > sens.punch || rightArmExtension > sens.punch) {
+                    motionInputs.punch = true;
+                }
             }
 
             updateTriggerBadges();
@@ -1187,7 +1193,7 @@
                 if (p1Wins >= 2 || p2Wins >= 2) {
                     gameState = 'GAME_OVER';
                     document.getElementById('gameOverOverlay').classList.remove('hidden');
-                    document.getElementById('winnerText').textContent = `${winner === 'P1' ? 'PLAYER 1' : (gameMode === '1P' ? 'CPU' : 'PLAYER 2')} VICTORIOUS!`;
+                    document.getElementById('winnerText', `${winner === 'P1' ? 'PLAYER 1' : (gameMode === '1P' ? 'CPU' : 'PLAYER 2')} VICTORIOUS!`);
                 } else {
                     roundCount++;
                     startRound();
