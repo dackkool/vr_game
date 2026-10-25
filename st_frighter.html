@@ -1,0 +1,1228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Street Fighter Motion Arcade - MediaPipe Pose Edition</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts for Retro Arcade Typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Teko:wght@700&display=swap" rel="stylesheet">
+
+    <!-- Google MediaPipe Pose CDN Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            background-color: #0b0f19;
+            font-family: 'Press Start 2P', monospace;
+            user-select: none;
+            overflow-x: hidden;
+            touch-action: manipulation;
+        }
+        .arcade-font {
+            font-family: 'Press Start 2P', monospace;
+        }
+        .title-font {
+            font-family: 'Teko', sans-serif;
+            text-shadow: 4px 4px 0px #d97706, -2px -2px 0px #000;
+        }
+        .arcade-btn {
+            transition: all 0.1s ease;
+            box-shadow: 0 6px 0 #1e293b, 0 10px 10px rgba(0,0,0,0.5);
+        }
+        .arcade-btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 2px 0 #1e293b, 0 4px 5px rgba(0,0,0,0.5);
+        }
+        /* CRT Scanline Overlay Effect */
+        .crt::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+            background-size: 100% 4px;
+            z-index: 40;
+            pointer-events: none;
+            opacity: 0.5;
+        }
+        .vignette {
+            box-shadow: inset 0 0 100px rgba(0,0,0,0.85);
+        }
+        /* Gesture trigger highlight badge */
+        .action-badge {
+            transition: all 0.15s ease;
+        }
+        .action-badge.active {
+            background-color: #f59e0b;
+            color: #000;
+            transform: scale(1.1);
+            box-shadow: 0 0 12px #f59e0b;
+        }
+    </style>
+</head>
+<body class="w-screen min-h-screen flex flex-col items-center justify-center p-2 sm:p-4 text-white relative crt">
+
+    <!-- Header Control Toolbar -->
+    <div class="w-full max-w-6xl flex flex-wrap justify-between items-center mb-2 px-2 gap-2 text-xs">
+        <div class="flex items-center gap-2">
+            <span class="text-yellow-400 font-bold hidden sm:inline">STREET FIGHTER: MOTION EDITION</span>
+            <span class="text-slate-400 text-[10px] bg-slate-800 px-2 py-1 rounded border border-slate-700">MediaPipe Pose AI</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <button id="btnToggleControlMode" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded text-[10px] font-bold border border-indigo-400">
+                CONTROL: MOTION (WEBCAM)
+            </button>
+            <button id="btnToggleCamFeed" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded text-[10px] border border-slate-600">
+                CAM FEED: ON
+            </button>
+            <button id="btnOpenCalib" class="bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded text-[10px] font-bold border border-amber-400">
+                CALIBRATE
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Game & Camera Display Container -->
+    <div class="relative w-full max-w-6xl aspect-[16/9] bg-slate-950 rounded-2xl overflow-hidden border-4 border-slate-700 shadow-2xl flex flex-col justify-between vignette">
+        
+        <!-- Game Canvas -->
+        <canvas id="gameCanvas" class="absolute inset-0 w-full h-full z-0 block"></canvas>
+
+        <!-- Webcam Stream (Hidden Element for MediaPipe input) -->
+        <video id="webcamVideo" class="hidden" playsinline></video>
+
+        <!-- Skeleton Overlay Canvas (Top Right PIP or Full Screen Calibration) -->
+        <div id="camFeedContainer" class="absolute top-16 right-4 z-20 w-48 sm:w-64 aspect-video bg-black/80 rounded-lg border-2 border-yellow-500/80 overflow-hidden shadow-xl transition-all">
+            <canvas id="skeletonCanvas" class="w-full h-full object-cover scale-x-[-1]"></canvas>
+            <div id="camStatus" class="absolute bottom-1 left-1 bg-black/80 text-[8px] px-1.5 py-0.5 rounded text-yellow-400">
+                Cam: Initializing...
+            </div>
+        </div>
+
+        <!-- Realtime Motion Trigger Status Bar (Bottom overlay) -->
+        <div id="motionTriggerBar" class="absolute bottom-3 left-4 z-20 flex flex-wrap gap-1.5 pointer-events-none">
+            <span id="badge-left" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">◄ LEFT</span>
+            <span id="badge-right" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">RIGHT ►</span>
+            <span id="badge-crouch" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">CROUCH</span>
+            <span id="badge-jump" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">JUMP</span>
+            <span id="badge-punch" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">PUNCH</span>
+            <span id="badge-kick" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">KICK</span>
+            <span id="badge-special" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">HADOUKEN</span>
+        </div>
+
+        <!-- HUD Layer -->
+        <div id="hud" class="relative z-10 p-4 flex flex-col justify-between h-full pointer-events-none hidden">
+            <!-- Top HUD Bar: Health & Timer -->
+            <div class="flex justify-between items-start gap-2 sm:gap-4">
+                <!-- Player 1 Status -->
+                <div class="flex-1 flex flex-col items-start">
+                    <div class="flex justify-between w-full text-xs sm:text-sm font-bold mb-1 drop-shadow">
+                        <span id="p1Name" class="text-red-400">RYU (P1)</span>
+                        <span id="p1Rounds" class="text-yellow-400">0 WINS</span>
+                    </div>
+                    <div class="w-full bg-slate-950 border-2 border-yellow-500 h-6 sm:h-8 rounded-sm overflow-hidden relative">
+                        <div id="p1HealthRed" class="absolute right-0 top-0 bottom-0 bg-red-600 transition-all duration-300 w-full"></div>
+                        <div id="p1Health" class="absolute right-0 top-0 bottom-0 bg-gradient-to-b from-yellow-300 to-yellow-500 transition-all duration-75 w-full"></div>
+                    </div>
+                    <div class="w-3/4 bg-slate-950 border border-slate-600 h-3 mt-1 rounded-sm overflow-hidden relative">
+                        <div id="p1Meter" class="h-full bg-gradient-to-r from-cyan-500 to-blue-400 w-0 transition-all duration-100"></div>
+                        <span class="absolute inset-0 flex items-center justify-center text-[8px] text-white tracking-widest">SUPER</span>
+                    </div>
+                </div>
+
+                <!-- Timer -->
+                <div class="bg-slate-900 border-2 border-yellow-500 px-3 py-1 rounded text-center min-w-[60px] sm:min-w-[80px]">
+                    <div id="timer" class="text-xl sm:text-3xl font-black text-yellow-400 leading-none">99</div>
+                </div>
+
+                <!-- Player 2 / AI Status -->
+                <div class="flex-1 flex flex-col items-end">
+                    <div class="flex justify-between w-full text-xs sm:text-sm font-bold mb-1 drop-shadow">
+                        <span id="p2Rounds" class="text-yellow-400">0 WINS</span>
+                        <span id="p2Name" class="text-blue-400">KEN (CPU)</span>
+                    </div>
+                    <div class="w-full bg-slate-950 border-2 border-yellow-500 h-6 sm:h-8 rounded-sm overflow-hidden relative">
+                        <div id="p2HealthRed" class="absolute left-0 top-0 bottom-0 bg-red-600 transition-all duration-300 w-full"></div>
+                        <div id="p2Health" class="absolute left-0 top-0 bottom-0 bg-gradient-to-b from-yellow-300 to-yellow-500 transition-all duration-75 w-full"></div>
+                    </div>
+                    <div class="w-3/4 bg-slate-950 border border-slate-600 h-3 mt-1 rounded-sm overflow-hidden relative">
+                        <div id="p2Meter" class="h-full bg-gradient-to-l from-cyan-500 to-blue-400 w-0 transition-all duration-100"></div>
+                        <span class="absolute inset-0 flex items-center justify-center text-[8px] text-white tracking-widest">SUPER</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Combo Counters -->
+            <div class="flex justify-between w-full pointer-events-none my-auto">
+                <div id="p1Combo" class="text-yellow-400 text-sm sm:text-2xl font-extrabold italic opacity-0 transition-opacity duration-200">
+                    <span id="p1ComboCount" class="text-2xl sm:text-4xl text-red-500">2</span> HITS!
+                </div>
+                <div id="p2Combo" class="text-yellow-400 text-sm sm:text-2xl font-extrabold italic opacity-0 transition-opacity duration-200 text-right">
+                    <span id="p2ComboCount" class="text-2xl sm:text-4xl text-blue-500">2</span> HITS!
+                </div>
+            </div>
+        </div>
+
+        <!-- Start / Main Menu -->
+        <div id="menuOverlay" class="absolute inset-0 z-30 bg-slate-950/90 flex flex-col items-center justify-center p-6 text-center">
+            <h1 class="title-font text-5xl sm:text-8xl tracking-wider text-yellow-400 italic font-black uppercase leading-none mb-1">
+                STREET FIGHTER
+            </h1>
+            <p class="text-red-500 text-xs sm:text-sm tracking-widest mb-6 font-bold animate-pulse">MEDIAPIPE POSE MOTION EDITION</p>
+
+            <div class="flex flex-col gap-3 w-full max-w-xs">
+                <button id="btnStartSingle" class="arcade-btn bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-6 rounded border-2 border-yellow-400 text-xs sm:text-sm uppercase tracking-wider">
+                    1 PLAYER (MOTION VS CPU)
+                </button>
+                <button id="btnStartTwo" class="arcade-btn bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded border-2 border-yellow-400 text-xs sm:text-sm uppercase tracking-wider">
+                    2 PLAYERS (MOTION VS KEYBOARD)
+                </button>
+                <button id="btnOpenHelp" class="arcade-btn bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2 px-4 rounded border border-slate-600 text-[10px] uppercase">
+                    MOTION GESTURE GUIDE
+                </button>
+                <button id="btnOpenGithubGuide" class="arcade-btn bg-emerald-700 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded border border-emerald-400 text-[10px] uppercase">
+                    DEPLOY TO GITHUB PAGES
+                </button>
+            </div>
+        </div>
+
+        <!-- Motion Gesture Guide Modal -->
+        <div id="helpModal" class="absolute inset-0 z-40 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center hidden">
+            <h2 class="text-yellow-400 text-base sm:text-xl font-bold mb-3">BODY MOTION CONTROLS</h2>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left text-[10px] sm:text-xs max-w-2xl mb-4 leading-relaxed">
+                <div class="bg-slate-900 p-3 rounded border border-red-500/50">
+                    <p class="text-red-400 font-bold mb-1">MOVEMENT:</p>
+                    <p>• <span class="text-yellow-300">Lean Left / Right</span>: Move Character</p>
+                    <p>• <span class="text-yellow-300">Squat / Lower Hips</span>: Crouch</p>
+                    <p>• <span class="text-yellow-300">Both Hands Up</span>: Jump</p>
+                    <p>• <span class="text-yellow-300">Lean Away</span>: Block Incoming Attacks</p>
+                </div>
+                <div class="bg-slate-900 p-3 rounded border border-blue-500/50">
+                    <p class="text-blue-400 font-bold mb-1">ATTACKS:</p>
+                    <p>• <span class="text-yellow-300">Punch Forward</span>: Light Punch</p>
+                    <p>• <span class="text-yellow-300">Raise Knee / Kick</span>: Heavy Kick</p>
+                    <p>• <span class="text-yellow-300">Both Hands Forward</span>: Hadouken (Fireball)</p>
+                </div>
+            </div>
+
+            <button id="btnCloseHelp" class="arcade-btn bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-6 rounded text-xs">
+                CLOSE GUIDE
+            </button>
+        </div>
+
+        <!-- Calibration & Sensitivity Adjuster Modal -->
+        <div id="calibModal" class="absolute inset-0 z-40 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center hidden">
+            <h2 class="text-amber-400 text-base sm:text-xl font-bold mb-2">MOTION SENSITIVITY CALIBRATION</h2>
+            <p class="text-[10px] text-slate-300 mb-4 max-w-md">Stand back so your upper body & knees are visible to the webcam.</p>
+
+            <div class="flex flex-col gap-3 w-full max-w-sm text-left text-xs mb-6">
+                <div>
+                    <label class="text-yellow-400 text-[10px] block mb-1">ARM PUNCH SENSITIVITY</label>
+                    <input type="range" id="sensPunch" min="0.15" max="0.4" step="0.02" value="0.25" class="w-full">
+                </div>
+                <div>
+                    <label class="text-yellow-400 text-[10px] block mb-1">KICK KNEE SENSITIVITY</label>
+                    <input type="range" id="sensKick" min="0.1" max="0.3" step="0.02" value="0.18" class="w-full">
+                </div>
+                <div>
+                    <label class="text-yellow-400 text-[10px] block mb-1">LEAN MOVEMENT SENSITIVITY</label>
+                    <input type="range" id="sensLean" min="0.03" max="0.15" step="0.01" value="0.06" class="w-full">
+                </div>
+            </div>
+
+            <button id="btnSaveCalib" class="arcade-btn bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 px-6 rounded text-xs">
+                SAVE & CONTINUE
+            </button>
+        </div>
+
+        <!-- GitHub Deployment Guide Modal -->
+        <div id="githubModal" class="absolute inset-0 z-40 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center hidden">
+            <h2 class="text-emerald-400 text-base sm:text-xl font-bold mb-3">HOW TO HOST ON GITHUB PAGES</h2>
+            
+            <div class="text-left text-[10px] sm:text-xs max-w-xl bg-slate-900 p-4 rounded border border-emerald-500/50 mb-4 space-y-2 leading-relaxed">
+                <p>1. Create a new public repository on <span class="text-yellow-300">GitHub.com</span>.</p>
+                <p>2. Create a file named <span class="text-yellow-300">index.html</span> and paste this entire code into it.</p>
+                <p>3. Go to Repository <span class="text-yellow-300">Settings</span> ➔ <span class="text-yellow-300">Pages</span>.</p>
+                <p>4. Set <span class="text-yellow-300">Source</span> to "Deploy from a branch", select <span class="text-yellow-300">main</span> branch / <span class="text-yellow-300">root</span> folder, and click <span class="text-yellow-300">Save</span>.</p>
+                <p>5. Your webcam fighting game is now live and playable at: <br><span class="text-emerald-300 underline">https://yourusername.github.io/your-repo-name/</span></p>
+            </div>
+
+            <button id="btnCloseGithub" class="arcade-btn bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-6 rounded text-xs">
+                BACK
+            </button>
+        </div>
+
+        <!-- Game Over Modal -->
+        <div id="gameOverOverlay" class="absolute inset-0 z-30 bg-slate-950/90 flex flex-col items-center justify-center p-6 text-center hidden">
+            <h2 id="winnerText" class="title-font text-5xl sm:text-7xl text-yellow-400 italic mb-2 drop-shadow-md">
+                PLAYER 1 WINS!
+            </h2>
+            <p id="winnerSubtext" class="text-xs sm:text-sm text-slate-300 mb-6">VICTORY!</p>
+
+            <button id="btnRetry" class="arcade-btn bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-black py-3 px-8 rounded text-sm sm:text-base border-2 border-white uppercase tracking-wider">
+                PLAY AGAIN
+            </button>
+        </div>
+
+    </div>
+
+    <!-- Game Engine & MediaPipe AI Logic -->
+    <script>
+        // --- SYNTHESIZER SOUND ENGINE (Web Audio API) ---
+        class SoundEngine {
+            constructor() {
+                this.ctx = null;
+                this.initialized = false;
+            }
+
+            init() {
+                if (this.initialized) return;
+                try {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    this.ctx = new AudioContext();
+                    this.initialized = true;
+                } catch (e) {
+                    console.warn("AudioContext init failed", e);
+                }
+            }
+
+            playTone(freq, type, duration, startVol = 0.3, endVol = 0) {
+                if (!this.initialized || !this.ctx) return;
+                try {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = type;
+                    osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                    gain.gain.setValueAtTime(startVol, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(Math.max(endVol, 0.0001), this.ctx.currentTime + duration);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + duration);
+                } catch(e){}
+            }
+
+            playPunch() {
+                if (!this.initialized) return;
+                this.playTone(200, 'square', 0.1, 0.4, 0.01);
+                this.playTone(90, 'sawtooth', 0.12, 0.5, 0.01);
+            }
+
+            playKick() {
+                if (!this.initialized) return;
+                this.playTone(130, 'triangle', 0.15, 0.5, 0.01);
+                this.playTone(60, 'sawtooth', 0.2, 0.6, 0.01);
+            }
+
+            playHadouken() {
+                if (!this.initialized) return;
+                try {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(250, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(1100, this.ctx.currentTime + 0.35);
+                    gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.4);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + 0.4);
+                } catch(e){}
+            }
+
+            playHit() {
+                if (!this.initialized) return;
+                try {
+                    const bufferSize = this.ctx.sampleRate * 0.1;
+                    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                    const output = buffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
+                    const whiteNoise = this.ctx.createBufferSource();
+                    whiteNoise.buffer = buffer;
+                    const filter = this.ctx.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.value = 700;
+                    const gain = this.ctx.createGain();
+                    gain.gain.setValueAtTime(0.6, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
+                    whiteNoise.connect(filter);
+                    filter.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    whiteNoise.start();
+                } catch(e){}
+            }
+
+            playBlock() {
+                if (!this.initialized) return;
+                this.playTone(450, 'sine', 0.08, 0.3, 0.01);
+            }
+
+            playKO() {
+                if (!this.initialized) return;
+                this.playTone(220, 'sawtooth', 0.5, 0.5, 0.01);
+                setTimeout(() => this.playTone(140, 'sawtooth', 0.7, 0.5, 0.01), 200);
+            }
+        }
+
+        const audio = new SoundEngine();
+
+        // --- CONSTANTS & CANVAS SETUP ---
+        const CANVAS_WIDTH = 1024;
+        const CANVAS_HEIGHT = 576;
+        const GROUND_Y = 470;
+        const GRAVITY = 1.2;
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = CANVAS_WIDTH;
+        canvas.height = CANVAS_HEIGHT;
+
+        const skeletonCanvas = document.getElementById('skeletonCanvas');
+        const sCtx = skeletonCanvas.getContext('2d');
+        skeletonCanvas.width = 320;
+        skeletonCanvas.height = 180;
+
+        // Game Configuration States
+        let controlMode = 'MOTION'; // 'MOTION' or 'KEYBOARD'
+        let gameMode = '1P'; // '1P' (vs AI) or '2P' (Motion P1 vs Keyboard P2)
+        let gameState = 'MENU'; // 'MENU', 'ROUND_INTRO', 'FIGHTING', 'ROUND_OVER', 'GAME_OVER'
+        let roundTime = 99;
+        let timerInterval = null;
+        let p1Wins = 0;
+        let p2Wins = 0;
+        let roundCount = 1;
+        let overlayText = '';
+        let overlaySubtext = '';
+        let screenShakeTime = 0;
+
+        let particles = [];
+        let fireballs = [];
+        const keys = {};
+
+        // Motion Sensitivity Parameters
+        const sens = {
+            punch: 0.25,
+            kick: 0.18,
+            lean: 0.06
+        };
+
+        // Current Active Motion State Triggers for Player 1
+        const motionInputs = {
+            left: false,
+            right: false,
+            crouch: false,
+            jump: false,
+            punch: false,
+            kick: false,
+            special: false
+        };
+
+        // --- MEDIAPIPE POSE TRACKING INITIALIZATION ---
+        let poseTracker = null;
+        let cameraUtils = null;
+        let isCamActive = true;
+        let stanceBaseX = 0.5;
+
+        function initMediaPipePose() {
+            const videoElement = document.getElementById('webcamVideo');
+            const camStatus = document.getElementById('camStatus');
+
+            poseTracker = new Pose({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+            });
+
+            poseTracker.setOptions({
+                modelComplexity: 1,
+                smoothLandmarks: true,
+                enableSegmentation: false,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            poseTracker.onResults(onPoseResults);
+
+            cameraUtils = new Camera(videoElement, {
+                onFrame: async () => {
+                    if (isCamActive) {
+                        await poseTracker.send({ image: videoElement });
+                    }
+                },
+                width: 640,
+                height: 360
+            });
+
+            cameraUtils.start().then(() => {
+                camStatus.textContent = "Cam: Active";
+                camStatus.className = "absolute bottom-1 left-1 bg-black/80 text-[8px] px-1.5 py-0.5 rounded text-emerald-400";
+            }).catch(err => {
+                console.error("Webcam camera error:", err);
+                camStatus.textContent = "Cam: Failed / Denied";
+                camStatus.className = "absolute bottom-1 left-1 bg-black/80 text-[8px] px-1.5 py-0.5 rounded text-red-400";
+            });
+        }
+
+        // --- POSE RECOGNITION ALGORITHM ---
+        function onPoseResults(results) {
+            // Draw skeleton on PiP overlay canvas
+            sCtx.save();
+            sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
+            if (results.image) {
+                sCtx.drawImage(results.image, 0, 0, skeletonCanvas.width, skeletonCanvas.height);
+            }
+
+            if (!results.poseLandmarks) {
+                sCtx.restore();
+                return;
+            }
+
+            const lm = results.poseLandmarks;
+
+            // Draw skeleton lines
+            drawSkeleton(sCtx, lm);
+            sCtx.restore();
+
+            if (controlMode !== 'MOTION') return;
+
+            // Extract Landmark Positions (0..1 normalized coords)
+            const nose = lm[0];
+            const leftShoulder = lm[11], rightShoulder = lm[12];
+            const leftElbow = lm[13], rightElbow = lm[14];
+            const leftWrist = lm[15], rightWrist = lm[16];
+            const leftHip = lm[23], rightHip = lm[24];
+            const leftKnee = lm[25], rightKnee = lm[26];
+
+            const midShoulderX = (leftShoulder.x + rightShoulder.x) / 2;
+            const midHipY = (leftHip.y + rightHip.y) / 2;
+
+            // Reset Motion State
+            motionInputs.left = false;
+            motionInputs.right = false;
+            motionInputs.crouch = false;
+            motionInputs.jump = false;
+            motionInputs.punch = false;
+            motionInputs.kick = false;
+            motionInputs.special = false;
+
+            // 1. Lean Movement (Left / Right) - Inverted for mirror display
+            const leanOffset = midShoulderX - stanceBaseX;
+            if (leanOffset > sens.lean) {
+                motionInputs.left = true; // Mirrored
+            } else if (leanOffset < -sens.lean) {
+                motionInputs.right = true;
+            }
+
+            // 2. Crouch (Hip level lowers)
+            if (midHipY > 0.68) {
+                motionInputs.crouch = true;
+            }
+
+            // 3. Jump (Hands raised high above head)
+            if (leftWrist.y < leftShoulder.y - 0.2 && rightWrist.y < rightShoulder.y - 0.2) {
+                motionInputs.jump = true;
+            }
+
+            // 4. Hadouken / Special Attack (Both hands close together in front of torso)
+            const handDistance = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
+            if (handDistance < 0.12 && leftWrist.y < leftHip.y && rightWrist.y < rightHip.y) {
+                motionInputs.special = true;
+            }
+
+            // 5. Punch (Arm extended forward horizontally)
+            const leftArmExtension = Math.abs(leftWrist.x - leftShoulder.x);
+            const rightArmExtension = Math.abs(rightWrist.x - rightShoulder.x);
+            if (!motionInputs.special && (leftArmExtension > sens.punch || rightArmExtension > sens.punch)) {
+                motionInputs.punch = true;
+            }
+
+            // 6. Kick (Leg / Knee raised above normal standing hip level)
+            if (leftKnee.y < leftHip.y + sens.kick || rightKnee.y < rightHip.y + sens.kick) {
+                motionInputs.kick = true;
+            }
+
+            // Update Trigger Badges UI
+            updateTriggerBadges();
+        }
+
+        function drawSkeleton(ctx, lm) {
+            ctx.fillStyle = '#f59e0b';
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 2;
+
+            // Key connections
+            const connections = [
+                [11, 12], [11, 13], [13, 15], [12, 14], [14, 16],
+                [11, 23], [12, 24], [23, 24], [23, 25], [24, 26]
+            ];
+
+            connections.forEach(([i, j]) => {
+                if (lm[i] && lm[j]) {
+                    ctx.beginPath();
+                    ctx.moveTo(lm[i].x * skeletonCanvas.width, lm[i].y * skeletonCanvas.height);
+                    ctx.lineTo(lm[j].x * skeletonCanvas.width, lm[j].y * skeletonCanvas.height);
+                    ctx.stroke();
+                }
+            });
+
+            lm.forEach(pt => {
+                if (pt.visibility > 0.4) {
+                    ctx.beginPath();
+                    ctx.arc(pt.x * skeletonCanvas.width, pt.y * skeletonCanvas.height, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            });
+        }
+
+        function updateTriggerBadges() {
+            const toggleBadge = (id, active) => {
+                const el = document.getElementById(id);
+                if (el) {
+                    if (active) el.classList.add('active');
+                    else el.classList.remove('active');
+                }
+            };
+
+            toggleBadge('badge-left', motionInputs.left);
+            toggleBadge('badge-right', motionInputs.right);
+            toggleBadge('badge-crouch', motionInputs.crouch);
+            toggleBadge('badge-jump', motionInputs.jump);
+            toggleBadge('badge-punch', motionInputs.punch);
+            toggleBadge('badge-kick', motionInputs.kick);
+            toggleBadge('badge-special', motionInputs.special);
+        }
+
+        // --- PARTICLE & PROJECTILE SYSTEM ---
+        class Particle {
+            constructor(x, y, color, vx, vy, size, life) {
+                this.x = x; this.y = y; this.color = color;
+                this.vx = vx; this.vy = vy; this.size = size;
+                this.life = life; this.maxLife = life;
+            }
+            update() { this.x += this.vx; this.y += this.vy; this.life--; }
+            draw(ctx) {
+                ctx.save();
+                ctx.globalAlpha = this.life / this.maxLife;
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.size, this.size);
+                ctx.restore();
+            }
+        }
+
+        function createHitSparks(x, y, color = '#fbbf24') {
+            for (let i = 0; i < 14; i++) {
+                const vx = (Math.random() - 0.5) * 12;
+                const vy = (Math.random() - 0.5) * 12;
+                const size = Math.random() * 6 + 3;
+                particles.push(new Particle(x, y, color, vx, vy, size, 14));
+            }
+        }
+
+        class Fireball {
+            constructor(x, y, direction, owner) {
+                this.x = x; this.y = y; this.width = 50; this.height = 30;
+                this.speed = direction === 'right' ? 14 : -14;
+                this.direction = direction;
+                this.owner = owner;
+                this.active = true;
+            }
+            update() {
+                this.x += this.speed;
+                if (Math.random() < 0.6) {
+                    particles.push(new Particle(
+                        this.x + (this.direction === 'right' ? 0 : this.width),
+                        this.y + Math.random() * this.height,
+                        this.owner === 'p1' ? '#38bdf8' : '#f97316',
+                        -this.speed * 0.2, (Math.random() - 0.5) * 2,
+                        Math.random() * 6 + 4, 10
+                    ));
+                }
+                if (this.x < -100 || this.x > CANVAS_WIDTH + 100) this.active = false;
+            }
+            draw(ctx) {
+                ctx.save();
+                const color = this.owner === 'p1' ? '#0284c7' : '#ea580c';
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.ellipse(this.x + this.width / 2, this.y + this.height / 2, this.width / 2, this.height / 2, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.ellipse(this.x + this.width / 2, this.y + this.height / 2, this.width / 3, this.height / 3, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        // --- FIGHTER CHARACTER ENGINE ---
+        class Fighter {
+            constructor({ x, y, color, palette, name, isAI = false, facing = 'right' }) {
+                this.x = x; this.y = y;
+                this.width = 70; this.height = 140;
+                this.color = color; this.palette = palette;
+                this.name = name; this.isAI = isAI;
+                this.vx = 0; this.vy = 0;
+                this.speed = 6.5; this.jumpStrength = -22;
+                this.facing = facing;
+                this.health = 100; this.superMeter = 0;
+                this.isGrounded = true; this.isCrouching = false;
+                this.isBlocking = false; this.isAttacking = false;
+                this.attackType = null; this.attackFrame = 0;
+                this.hitStun = 0; this.comboCount = 0; this.comboResetTimer = 0;
+                this.hitbox = null;
+            }
+
+            reset(x, facing) {
+                this.x = x; this.y = GROUND_Y - this.height;
+                this.vx = 0; this.vy = 0; this.health = 100;
+                this.facing = facing; this.isAttacking = false;
+                this.isCrouching = false; this.isBlocking = false;
+                this.hitStun = 0; this.comboCount = 0;
+            }
+
+            update(opponent) {
+                if (this.comboResetTimer > 0) {
+                    this.comboResetTimer--;
+                    if (this.comboResetTimer <= 0) {
+                        this.comboCount = 0;
+                        updateComboUI(this === player1 ? 1 : 2, 0);
+                    }
+                }
+
+                if (this.hitStun > 0) {
+                    this.hitStun--;
+                    this.x += this.facing === 'right' ? -1.5 : 1.5;
+                    this.clampPosition();
+                    return;
+                }
+
+                this.vy += GRAVITY;
+                this.y += this.vy;
+
+                if (this.y + this.height >= GROUND_Y) {
+                    this.y = GROUND_Y - this.height;
+                    this.vy = 0;
+                    this.isGrounded = true;
+                } else {
+                    this.isGrounded = false;
+                }
+
+                if (!this.isAttacking && this.isGrounded) {
+                    if (this.x < opponent.x) this.facing = 'right';
+                    else this.facing = 'left';
+                }
+
+                this.x += this.vx;
+                this.clampPosition();
+
+                if (this.isAttacking) {
+                    this.attackFrame++;
+                    if (this.attackType === 'special' && this.attackFrame === 10) {
+                        const spawnX = this.facing === 'right' ? this.x + this.width + 10 : this.x - 50;
+                        fireballs.push(new Fireball(spawnX, this.y + 35, this.facing, this === player1 ? 'p1' : 'p2'));
+                        audio.playHadouken();
+                    }
+                    if (this.attackFrame >= 20) {
+                        this.isAttacking = false;
+                        this.attackType = null;
+                        this.attackFrame = 0;
+                        this.hitbox = null;
+                    } else {
+                        this.updateHitbox();
+                    }
+                }
+
+                if (this.isAI && gameState === 'FIGHTING') {
+                    this.updateAI(opponent);
+                }
+            }
+
+            clampPosition() {
+                if (this.x < 10) this.x = 10;
+                if (this.x + this.width > CANVAS_WIDTH - 10) this.x = CANVAS_WIDTH - 10 - this.width;
+            }
+
+            updateHitbox() {
+                if (!this.isAttacking) return;
+                let range = 55, height = 30, offsetY = 25;
+                if (this.attackType === 'kick') { range = 75; offsetY = 60; }
+                if (this.attackType === 'special') { this.hitbox = null; return; }
+
+                const hbX = this.facing === 'right' ? this.x + this.width : this.x - range;
+                this.hitbox = {
+                    x: hbX, y: this.y + offsetY, width: range, height: height,
+                    damage: this.attackType === 'kick' ? 12 : 7
+                };
+            }
+
+            moveLeft() {
+                if (this.isAttacking || this.hitStun > 0) return;
+                this.vx = -this.speed;
+                if (this.facing === 'right') this.isBlocking = true;
+            }
+
+            moveRight() {
+                if (this.isAttacking || this.hitStun > 0) return;
+                this.vx = this.speed;
+                if (this.facing === 'left') this.isBlocking = true;
+            }
+
+            stopMoving() { this.vx = 0; this.isBlocking = false; }
+
+            jump() {
+                if (this.isGrounded && !this.isAttacking && this.hitStun === 0) {
+                    this.vy = this.jumpStrength;
+                    this.isGrounded = false;
+                }
+            }
+
+            crouch(isCrouching) {
+                if (this.isGrounded && !this.isAttacking) {
+                    this.isCrouching = isCrouching;
+                    this.height = isCrouching ? 90 : 140;
+                    this.y = GROUND_Y - this.height;
+                }
+            }
+
+            attack(type) {
+                if (this.isAttacking || this.hitStun > 0) return;
+                this.isAttacking = true;
+                this.attackType = type;
+                this.attackFrame = 0;
+                if (type === 'punch') audio.playPunch();
+                if (type === 'kick') audio.playKick();
+            }
+
+            takeDamage(amount, attacker) {
+                if (this.isBlocking && !this.isAttacking) {
+                    amount *= 0.15;
+                    audio.playBlock();
+                    createHitSparks(this.x + this.width / 2, this.y + 40, '#38bdf8');
+                } else {
+                    audio.playHit();
+                    createHitSparks(this.x + this.width / 2, this.y + 40, '#ef4444');
+                    this.hitStun = 14;
+                    screenShakeTime = 8;
+                    attacker.comboCount++;
+                    attacker.comboResetTimer = 90;
+                    updateComboUI(attacker === player1 ? 1 : 2, attacker.comboCount);
+                    attacker.superMeter = Math.min(100, attacker.superMeter + 10);
+                    updateSuperMeterUI();
+                }
+                this.health = Math.max(0, this.health - amount);
+                updateHealthUI();
+                if (this.health <= 0) audio.playKO();
+            }
+
+            updateAI(opponent) {
+                const dist = Math.abs((this.x + this.width / 2) - (opponent.x + opponent.width / 2));
+                if (Math.random() < 0.05) {
+                    if (dist > 250) {
+                        if (Math.random() < 0.35) this.attack('special');
+                        else {
+                            if (this.x < opponent.x) this.moveRight(); else this.moveLeft();
+                        }
+                    } else if (dist > 70) {
+                        if (this.x < opponent.x) this.moveRight(); else this.moveLeft();
+                        if (Math.random() < 0.2) this.jump();
+                    } else {
+                        this.stopMoving();
+                        const r = Math.random();
+                        if (r < 0.4) this.attack('punch');
+                        else if (r < 0.75) this.attack('kick');
+                        else this.crouch(true);
+                    }
+                }
+            }
+
+            draw(ctx) {
+                ctx.save();
+                if (this.hitStun > 0 && Math.floor(Date.now() / 50) % 2 === 0) {
+                    ctx.fillStyle = '#ffffff';
+                } else {
+                    ctx.fillStyle = this.palette.gi;
+                }
+
+                const isFlipped = this.facing === 'left';
+                ctx.translate(this.x + this.width / 2, this.y + this.height);
+                if (isFlipped) ctx.scale(-1, 1);
+
+                // Legs
+                ctx.fillStyle = this.palette.pants;
+                if (this.isCrouching) {
+                    ctx.fillRect(-25, -40, 20, 40); ctx.fillRect(5, -40, 20, 40);
+                } else if (this.isAttacking && this.attackType === 'kick' && this.attackFrame > 4 && this.attackFrame < 16) {
+                    ctx.fillRect(-20, -70, 18, 70);
+                    ctx.fillStyle = this.palette.skin;
+                    ctx.fillRect(-5, -80, 70, 20);
+                } else {
+                    ctx.fillRect(-25, -70, 20, 70); ctx.fillRect(5, -70, 20, 70);
+                }
+
+                // Torso
+                ctx.fillStyle = this.palette.gi;
+                const torsoY = this.isCrouching ? -80 : -130;
+                ctx.fillRect(-25, torsoY, 50, 60);
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(-26, torsoY + 55, 52, 8); // Belt
+
+                // Head
+                ctx.fillStyle = this.palette.skin;
+                const headY = torsoY - 30;
+                ctx.fillRect(-15, headY, 30, 30);
+                ctx.fillStyle = this.palette.hair;
+                ctx.fillRect(-17, headY - 5, 34, 12);
+                ctx.fillStyle = this.palette.headband;
+                ctx.fillRect(-18, headY + 5, 36, 6);
+
+                // Arms
+                ctx.fillStyle = this.palette.skin;
+                if (this.isAttacking && this.attackType === 'punch' && this.attackFrame > 3 && this.attackFrame < 15) {
+                    ctx.fillRect(10, torsoY + 15, 55, 18);
+                    ctx.fillStyle = this.palette.headband;
+                    ctx.fillRect(50, torsoY + 12, 20, 24);
+                } else if (this.isAttacking && this.attackType === 'special') {
+                    ctx.fillRect(5, torsoY + 10, 45, 20);
+                    ctx.fillRect(5, torsoY + 30, 45, 20);
+                    ctx.fillStyle = '#38bdf8';
+                    ctx.fillRect(40, torsoY + 15, 20, 30);
+                } else if (this.isBlocking) {
+                    ctx.fillRect(5, torsoY + 5, 20, 45);
+                } else {
+                    ctx.fillRect(10, torsoY + 15, 20, 35);
+                }
+
+                ctx.restore();
+            }
+        }
+
+        // Color Palettes
+        const ryuPalette = { gi: '#f8fafc', pants: '#f8fafc', skin: '#fbcfe8', hair: '#292524', headband: '#dc2626' };
+        const kenPalette = { gi: '#dc2626', pants: '#dc2626', skin: '#fde047', hair: '#eab308', headband: '#1e293b' };
+
+        const player1 = new Fighter({ x: 200, y: GROUND_Y - 140, color: 'red', palette: ryuPalette, name: 'RYU', isAI: false, facing: 'right' });
+        const player2 = new Fighter({ x: 750, y: GROUND_Y - 140, color: 'blue', palette: kenPalette, name: 'KEN', isAI: true, facing: 'left' });
+
+        // --- BACKGROUND & STAGE ---
+        function drawStage() {
+            const sky = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+            sky.addColorStop(0, '#0f172a'); sky.addColorStop(0.6, '#1e1b4b'); sky.addColorStop(1, '#311042');
+            ctx.fillStyle = sky;
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            ctx.fillStyle = '#fef08a';
+            ctx.beginPath();
+            ctx.arc(CANVAS_WIDTH / 2, 160, 90, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#090d16';
+            ctx.beginPath();
+            ctx.moveTo(100, GROUND_Y - 80); ctx.lineTo(150, GROUND_Y - 160); ctx.lineTo(200, GROUND_Y - 80);
+            ctx.fill();
+
+            const floorGrad = ctx.createLinearGradient(0, GROUND_Y, 0, CANVAS_HEIGHT);
+            floorGrad.addColorStop(0, '#b45309'); floorGrad.addColorStop(1, '#451a03');
+            ctx.fillStyle = floorGrad;
+            ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
+            ctx.fillStyle = '#dc2626';
+            ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, 6);
+        }
+
+        function checkCollisions() {
+            if (player1.hitbox && player1.isAttacking) {
+                if (isOverlapping(player1.hitbox, player2)) {
+                    player2.takeDamage(player1.hitbox.damage, player1);
+                    player1.hitbox = null;
+                }
+            }
+            if (player2.hitbox && player2.isAttacking) {
+                if (isOverlapping(player2.hitbox, player1)) {
+                    player1.takeDamage(player2.hitbox.damage, player1);
+                    player2.hitbox = null;
+                }
+            }
+            fireballs.forEach(fb => {
+                if (!fb.active) return;
+                const target = fb.owner === 'p1' ? player2 : player1;
+                const attacker = fb.owner === 'p1' ? player1 : player2;
+                if (isOverlapping(fb, target)) {
+                    target.takeDamage(15, attacker);
+                    fb.active = false;
+                    createHitSparks(fb.x, fb.y, '#38bdf8');
+                }
+            });
+        }
+
+        function isOverlapping(r1, r2) {
+            return (r1.x < r2.x + r2.width && r1.x + r1.width > r2.x && r1.y < r2.y + r2.height && r1.y + r1.height > r2.y);
+        }
+
+        function updateHealthUI() {
+            const p1Pct = Math.max(0, player1.health);
+            const p2Pct = Math.max(0, player2.health);
+            document.getElementById('p1Health').style.width = `${p1Pct}%`;
+            document.getElementById('p2Health').style.width = `${p2Pct}%`;
+            setTimeout(() => {
+                document.getElementById('p1HealthRed').style.width = `${p1Pct}%`;
+                document.getElementById('p2HealthRed').style.width = `${p2Pct}%`;
+            }, 300);
+        }
+
+        function updateSuperMeterUI() {
+            document.getElementById('p1Meter').style.width = `${player1.superMeter}%`;
+            document.getElementById('p2Meter').style.width = `${player2.superMeter}%`;
+        }
+
+        function updateComboUI(playerNum, count) {
+            const el = document.getElementById(playerNum === 1 ? 'p1Combo' : 'p2Combo');
+            const countEl = document.getElementById(playerNum === 1 ? 'p1ComboCount' : 'p2ComboCount');
+            if (count > 1) { countEl.textContent = count; el.style.opacity = '1'; }
+            else el.style.opacity = '0';
+        }
+
+        function startRound() {
+            player1.reset(200, 'right');
+            player2.reset(750, 'left');
+            fireballs = []; particles = []; roundTime = 99;
+            document.getElementById('timer').textContent = roundTime;
+            updateHealthUI(); updateSuperMeterUI();
+
+            gameState = 'ROUND_INTRO';
+            overlayText = `ROUND ${roundCount}`;
+            overlaySubtext = 'READY...';
+
+            setTimeout(() => {
+                overlayText = 'FIGHT!';
+                overlaySubtext = '';
+                audio.playPunch();
+                setTimeout(() => {
+                    gameState = 'FIGHTING';
+                    overlayText = '';
+                    startTimer();
+                }, 800);
+            }, 1200);
+        }
+
+        function startTimer() {
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if (gameState === 'FIGHTING') {
+                    roundTime--;
+                    document.getElementById('timer').textContent = roundTime;
+                    if (roundTime <= 0) endRound('TIME OVER');
+                }
+            }, 1000);
+        }
+
+        function endRound(reason) {
+            clearInterval(timerInterval);
+            gameState = 'ROUND_OVER';
+
+            let winner = null;
+            if (player1.health > player2.health) winner = player1;
+            else if (player2.health > player1.health) winner = player2;
+
+            overlayText = reason === 'TIME OVER' ? 'TIME OVER' : 'K.O.';
+
+            if (winner === player1) p1Wins++;
+            else if (winner === player2) p2Wins++;
+
+            document.getElementById('p1Rounds').textContent = `${p1Wins} WINS`;
+            document.getElementById('p2Rounds').textContent = `${p2Wins} WINS`;
+
+            setTimeout(() => {
+                if (p1Wins >= 2 || p2Wins >= 2) {
+                    gameState = 'GAME_OVER';
+                    const finalWinner = p1Wins >= 2 ? 'PLAYER 1' : (gameMode === '1P' ? 'CPU' : 'PLAYER 2');
+                    document.getElementById('winnerText').textContent = `${finalWinner} WINS!`;
+                    document.getElementById('winnerSubtext').textContent = 'CHAMPION VICTORY!';
+                    document.getElementById('gameOverOverlay').classList.remove('hidden');
+                } else {
+                    roundCount++;
+                    startRound();
+                }
+            }, 2500);
+        }
+
+        // Main Input Router (Combines Motion and Keyboard Controls)
+        function processInputs() {
+            if (gameState !== 'FIGHTING') return;
+
+            // Player 1 Control Processing
+            if (controlMode === 'MOTION') {
+                if (motionInputs.left) player1.moveLeft();
+                else if (motionInputs.right) player1.moveRight();
+                else player1.stopMoving();
+
+                if (motionInputs.jump) player1.jump();
+                player1.crouch(motionInputs.crouch);
+
+                if (motionInputs.special) player1.attack('special');
+                else if (motionInputs.punch) player1.attack('punch');
+                else if (motionInputs.kick) player1.attack('kick');
+            } else { // Keyboard fallback
+                if (keys['KeyA'] || keys['a']) player1.moveLeft();
+                else if (keys['KeyD'] || keys['d']) player1.moveRight();
+                else player1.stopMoving();
+
+                if (keys['KeyW'] || keys['w']) player1.jump();
+                player1.crouch(!!(keys['KeyS'] || keys['s']));
+            }
+
+            // Player 2 Controls (when 2P local mode)
+            if (gameMode === '2P') {
+                if (keys['ArrowLeft']) player2.moveLeft();
+                else if (keys['ArrowRight']) player2.moveRight();
+                else player2.stopMoving();
+
+                if (keys['ArrowUp']) player2.jump();
+                player2.crouch(!!keys['ArrowDown']);
+            }
+        }
+
+        function update() {
+            processInputs();
+
+            player1.update(player2);
+            player2.update(player1);
+
+            fireballs.forEach(fb => fb.update());
+            fireballs = fireballs.filter(fb => fb.active);
+
+            particles.forEach(p => p.update());
+            particles = particles.filter(p => p.life > 0);
+
+            if (gameState === 'FIGHTING') {
+                checkCollisions();
+                if (player1.health <= 0 || player2.health <= 0) endRound('KO');
+            }
+        }
+
+        function render() {
+            ctx.save();
+            if (screenShakeTime > 0) {
+                ctx.translate((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12);
+                screenShakeTime--;
+            }
+
+            drawStage();
+
+            player1.draw(ctx);
+            player2.draw(ctx);
+
+            fireballs.forEach(fb => fb.draw(ctx));
+            particles.forEach(p => p.draw(ctx));
+
+            if (overlayText) {
+                ctx.save();
+                ctx.fillStyle = '#f59e0b';
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 6;
+                ctx.font = '900 52px "Press Start 2P", monospace';
+                ctx.textAlign = 'center';
+                ctx.strokeText(overlayText, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
+                ctx.fillText(overlayText, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
+
+                if (overlaySubtext) {
+                    ctx.font = '700 24px "Press Start 2P", monospace';
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillText(overlaySubtext, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
+                }
+                ctx.restore();
+            }
+
+            ctx.restore();
+        }
+
+        function gameLoop() {
+            update();
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // --- EVENT LISTENERS & UI INTERACTION ---
+        window.addEventListener('keydown', e => {
+            audio.init();
+            keys[e.code] = true; keys[e.key] = true;
+
+            if (gameState !== 'FIGHTING') return;
+
+            if (controlMode === 'KEYBOARD') {
+                if (e.code === 'KeyJ') player1.attack('punch');
+                if (e.code === 'KeyK') player1.attack('kick');
+                if (e.code === 'KeyL') player1.attack('special');
+            }
+
+            if (gameMode === '2P') {
+                if (e.code === 'Numpad1' || e.code === 'KeyU') player2.attack('punch');
+                if (e.code === 'Numpad2' || e.code === 'KeyI') player2.attack('kick');
+                if (e.code === 'Numpad3' || e.code === 'KeyO') player2.attack('special');
+            }
+        });
+
+        window.addEventListener('keyup', e => {
+            keys[e.code] = false; keys[e.key] = false;
+        });
+
+        // UI Buttons
+        document.getElementById('btnStartSingle').addEventListener('click', () => {
+            audio.init(); gameMode = '1P'; player2.isAI = true;
+            document.getElementById('menuOverlay').classList.add('hidden');
+            document.getElementById('hud').classList.remove('hidden');
+            p1Wins = 0; p2Wins = 0; roundCount = 1;
+            startRound();
+        });
+
+        document.getElementById('btnStartTwo').addEventListener('click', () => {
+            audio.init(); gameMode = '2P'; player2.isAI = false;
+            document.getElementById('menuOverlay').classList.add('hidden');
+            document.getElementById('hud').classList.remove('hidden');
+            p1Wins = 0; p2Wins = 0; roundCount = 1;
+            startRound();
+        });
+
+        document.getElementById('btnToggleControlMode').addEventListener('click', () => {
+            controlMode = controlMode === 'MOTION' ? 'KEYBOARD' : 'MOTION';
+            const btn = document.getElementById('btnToggleControlMode');
+            btn.textContent = `CONTROL: ${controlMode}`;
+            btn.className = controlMode === 'MOTION' 
+                ? 'bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded text-[10px] font-bold border border-indigo-400'
+                : 'bg-slate-700 hover:bg-slate-600 text-yellow-400 px-3 py-1.5 rounded text-[10px] font-bold border border-yellow-400';
+        });
+
+        document.getElementById('btnToggleCamFeed').addEventListener('click', () => {
+            isCamActive = !isCamActive;
+            document.getElementById('camFeedContainer').style.display = isCamActive ? 'block' : 'none';
+            document.getElementById('btnToggleCamFeed').textContent = `CAM FEED: ${isCamActive ? 'ON' : 'OFF'}`;
+        });
+
+        // Modal Controls
+        document.getElementById('btnOpenHelp').addEventListener('click', () => document.getElementById('helpModal').classList.remove('hidden'));
+        document.getElementById('btnCloseHelp').addEventListener('click', () => document.getElementById('helpModal').classList.add('hidden'));
+
+        document.getElementById('btnOpenCalib').addEventListener('click', () => document.getElementById('calibModal').classList.remove('hidden'));
+        document.getElementById('btnSaveCalib').addEventListener('click', () => {
+            sens.punch = parseFloat(document.getElementById('sensPunch').value);
+            sens.kick = parseFloat(document.getElementById('sensKick').value);
+            sens.lean = parseFloat(document.getElementById('sensLean').value);
+            document.getElementById('calibModal').classList.add('hidden');
+        });
+
+        document.getElementById('btnOpenGithubGuide').addEventListener('click', () => document.getElementById('githubModal').classList.remove('hidden'));
+        document.getElementById('btnCloseGithub').addEventListener('click', () => document.getElementById('githubModal').classList.add('hidden'));
+
+        document.getElementById('btnRetry').addEventListener('click', () => {
+            document.getElementById('gameOverOverlay').classList.add('hidden');
+            p1Wins = 0; p2Wins = 0; roundCount = 1;
+            startRound();
+        });
+
+        // Start MediaPipe Pose Detection & Game Engine Loop
+        initMediaPipePose();
+        requestAnimationFrame(gameLoop);
+
+    </script>
+</body>
+</html>
