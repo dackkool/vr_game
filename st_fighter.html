@@ -26,7 +26,7 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: flex-start; /* 讓內容由上往下排，避免頂部被遮 */
+            justify-content: flex-start;
             padding-top: 5px;
         }
         .arcade-font {
@@ -83,7 +83,7 @@
 </head>
 <body class="relative crt text-white">
 
-    <!-- Header Control Toolbar (固定在最上排，絕不遮擋血量) -->
+    <!-- Header Control Toolbar -->
     <div id="toolbar" class="w-full max-w-5xl flex flex-wrap justify-between items-center px-3 py-1.5 mb-1 gap-1 text-[10px] z-30 bg-slate-900/90 border-b border-slate-700 rounded-md">
         <div class="flex items-center gap-1.5">
             <span class="text-yellow-400 font-bold hidden md:inline">STREET FIGHTER: HK STAGE</span>
@@ -133,7 +133,7 @@
             <span id="badge-shoryuken" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[8px] px-1.5 py-0.5 rounded">SHORYUKEN</span>
         </div>
 
-        <!-- HUD Layer (位置下移，確保不被工具列遮擋) -->
+        <!-- HUD Layer -->
         <div id="hud" class="relative z-10 p-3 pt-4 flex flex-col justify-between h-full pointer-events-none hidden">
             <!-- Top HUD Bar: Health & Timer & Best of 3 Rounds -->
             <div class="flex justify-between items-start gap-2">
@@ -184,7 +184,7 @@
             </div>
         </div>
 
-        <!-- Start / Main Menu (經典開場畫面) -->
+        <!-- Start / Main Menu -->
         <div id="menuOverlay" class="absolute inset-0 z-30 bg-slate-950/90 flex flex-col items-center justify-center p-4 text-center">
             <h1 class="title-font text-4xl sm:text-7xl tracking-wider text-yellow-400 italic font-black uppercase leading-none mb-1">
                 STREET FIGHTER
@@ -488,7 +488,6 @@
             }
         }
 
-        // --- 🎯 嚴格修正：雙手放下時絕對乾淨，龜波氣功需要雙手靠近胸前蓄力 ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -505,7 +504,7 @@
             drawSkeleton(sCtx, rawLm);
             sCtx.restore();
 
-            if (controlMode !== 'MOTION') return;
+            if (controlMode !== 'MOTION' || gameState !== 'FIGHTING') return;
 
             const lm = rawLm.map(pt => ({
                 x: 1.0 - pt.x,
@@ -524,7 +523,6 @@
             const midShoulderX = (leftShoulder.x + rightShoulder.x) / 2;
             const midHipY = (leftHip.y + rightHip.y) / 2;
 
-            // 歸零所有指令
             motionInputs.crouch = false;
             motionInputs.jump = false;
             motionInputs.punch = false;
@@ -534,7 +532,6 @@
             motionInputs.block = false;
             motionInputs.isChargingHadouken = false;
 
-            // 1. 位置跟隨
             motionInputs.targetXRatio = Math.max(0.0, Math.min(1.0, midShoulderX));
             if (rightShoulder.x < leftShoulder.x - 0.05) {
                 player1.facing = 'right';
@@ -544,7 +541,6 @@
 
             const handDist = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
 
-            // 2. 單或雙手護頭 = 擋 (Guard)
             const isLeftGuard = leftWrist.y < nose.y + 0.12 && Math.abs(leftWrist.x - nose.x) < 0.25;
             const isRightGuard = rightWrist.y < nose.y + 0.12 && Math.abs(rightWrist.x - nose.x) < 0.25;
             if (isLeftGuard || isRightGuard) {
@@ -553,7 +549,6 @@
                 return;
             }
 
-            // 3. 龜波氣功 (Hadouken) ── 雙手靠近胸前（且必須高於腰部、低於肩膀附近），張開手指推出
             const isHandsAtChestHeight = (leftWrist.y > nose.y && leftWrist.y < leftHip.y) && 
                                            (rightWrist.y > nose.y && rightWrist.y < rightHip.y);
             const isHandsCloseTogether = handDist < 0.22;
@@ -561,11 +556,11 @@
             if (hadoukenChargeTimer > 0) hadoukenChargeTimer--;
 
             if (isHandsAtChestHeight && isHandsCloseTogether) {
-                motionInputs.isChargingHadouken = true; // 顯示藍氣蓄力
+                motionInputs.isChargingHadouken = true;
                 hadoukenState = 'CHARGED';
                 hadoukenChargeTimer = 40;
             } else if (hadoukenState === 'CHARGED' && hadoukenChargeTimer > 0 && handDist > 0.40) {
-                motionInputs.special = true; // 推出波！
+                motionInputs.special = true;
                 hadoukenState = 'IDLE';
                 hadoukenChargeTimer = 0;
                 motionInputs.isChargingHadouken = false;
@@ -575,7 +570,6 @@
                 hadoukenState = 'IDLE';
             }
 
-            // 4. 昇龍拳 (Shoryuken) ── 單手舉起，另一手在腰間
             const isRightUp = rightWrist.y < nose.y - 0.05;
             const isLeftUp = leftWrist.y < nose.y - 0.05;
             const isRightWaist = rightWrist.y > leftHip.y - 0.15;
@@ -587,7 +581,6 @@
                 return;
             }
 
-            // 5. 跳高 = 跳 (Jump)
             const isBothHandsUp = rightWrist.y < nose.y - 0.08 && leftWrist.y < nose.y - 0.08;
             const isJumpingLegs = leftAnkle.y < leftHip.y + 0.2 || rightAnkle.y < rightHip.y + 0.2;
             if (isBothHandsUp || isJumpingLegs) {
@@ -596,14 +589,12 @@
                 return;
             }
 
-            // 6. 樽下 (蹲下)
             if (midHipY > 0.68) {
                 motionInputs.crouch = true;
                 updateTriggerBadges();
                 return;
             }
 
-            // 7. 單腳向前伸出 = 出腳 (Kick)
             const isKicking = leftKnee.y < leftHip.y + 0.15 || rightKnee.y < rightHip.y + 0.15 || 
                               Math.abs(leftAnkle.x - leftHip.x) > 0.25 || Math.abs(rightAnkle.x - rightHip.x) > 0.25;
             if (isKicking) {
@@ -612,7 +603,6 @@
                 return;
             }
 
-            // 8. 單手向前伸出 = 出拳 (Punch)
             const leftArmExt = Math.hypot(leftWrist.x - leftShoulder.x, leftWrist.y - leftShoulder.y);
             const rightArmExt = Math.hypot(rightWrist.x - rightShoulder.x, rightWrist.y - rightShoulder.y);
             if (leftArmExt > sens.punch || rightArmExt > sens.punch) {
@@ -736,7 +726,7 @@
             }
         }
 
-        // --- FIGHTER CHARACTER ENGINE (精緻外觀：頭帶、道袍、肌肉線條) ---
+        // --- FIGHTER ENGINE (含敗者倒地動畫 Knockdown State) ---
         class Fighter {
             constructor({ x, y, palette, name, isAI = false, facing = 'right' }) {
                 this.x = x; this.y = y;
@@ -752,6 +742,10 @@
                 this.attackType = null; this.attackFrame = 0;
                 this.hitStun = 0; this.comboCount = 0; this.comboResetTimer = 0;
                 this.hitbox = null;
+
+                // 倒地狀態參數
+                this.isKnockedDown = false;
+                this.fallAngle = 0;
             }
 
             reset(x, facing) {
@@ -761,9 +755,29 @@
                 this.isCrouching = false; this.isBlocking = false;
                 this.hitStun = 0; this.comboCount = 0;
                 this.hitbox = null;
+                this.isKnockedDown = false;
+                this.fallAngle = 0;
+                this.height = 145;
             }
 
             update(opponent) {
+                // 倒下死亡狀態物理計算
+                if (this.isKnockedDown) {
+                    if (Math.abs(this.fallAngle) < Math.PI / 2) {
+                        this.fallAngle += (this.facing === 'right' ? -0.15 : 0.15);
+                    }
+                    if (!this.isGrounded) {
+                        this.vy += GRAVITY;
+                        this.y += this.vy;
+                        if (this.y >= GROUND_Y - 40) {
+                            this.y = GROUND_Y - 40;
+                            this.vy = 0;
+                            this.isGrounded = true;
+                        }
+                    }
+                    return;
+                }
+
                 if (this.comboResetTimer > 0) {
                     this.comboResetTimer--;
                     if (this.comboResetTimer <= 0) {
@@ -808,6 +822,7 @@
             }
 
             updateAI(opponent) {
+                if (this.isKnockedDown) return;
                 const dist = opponent.x - this.x;
                 this.facing = opponent.x > this.x ? 'right' : 'left';
 
@@ -831,7 +846,7 @@
             }
 
             moveToTargetX(targetX) {
-                if (this.hitStun > 0 || this.isAttacking) return;
+                if (this.isKnockedDown || this.hitStun > 0 || this.isAttacking) return;
                 const diff = targetX - this.x;
                 if (Math.abs(diff) > 4) {
                     this.x += Math.sign(diff) * Math.min(Math.abs(diff), this.speed);
@@ -841,14 +856,14 @@
             }
 
             jump() {
-                if (this.isGrounded && !this.isCrouching && this.hitStun === 0 && !this.isAttacking) {
+                if (!this.isKnockedDown && this.isGrounded && !this.isCrouching && this.hitStun === 0 && !this.isAttacking) {
                     this.vy = this.jumpStrength;
                     this.isGrounded = false;
                 }
             }
 
             crouch(isDown) {
-                if (!this.isGrounded) return;
+                if (!this.isGrounded || this.isKnockedDown) return;
                 this.isCrouching = isDown;
                 if (isDown) {
                     this.height = 100;
@@ -860,7 +875,7 @@
             }
 
             punch() {
-                if (this.isAttacking || this.hitStun > 0) return;
+                if (this.isKnockedDown || this.isAttacking || this.hitStun > 0) return;
                 this.isAttacking = true;
                 this.attackType = 'punch';
                 this.attackFrame = 15;
@@ -871,7 +886,7 @@
             }
 
             kick() {
-                if (this.isAttacking || this.hitStun > 0) return;
+                if (this.isKnockedDown || this.isAttacking || this.hitStun > 0) return;
                 this.isAttacking = true;
                 this.attackType = 'kick';
                 this.attackFrame = 22;
@@ -882,7 +897,7 @@
             }
 
             hadouken() {
-                if (this.isAttacking || this.hitStun > 0) return;
+                if (this.isKnockedDown || this.isAttacking || this.hitStun > 0) return;
                 this.isAttacking = true;
                 this.attackType = 'hadouken';
                 this.attackFrame = 25;
@@ -893,7 +908,7 @@
             }
 
             shoryuken() {
-                if (this.isAttacking || this.hitStun > 0) return;
+                if (this.isKnockedDown || this.isAttacking || this.hitStun > 0) return;
                 this.isAttacking = true;
                 this.attackType = 'shoryuken';
                 this.attackFrame = 28;
@@ -906,6 +921,8 @@
             }
 
             takeDamage(damage, force, isLowAttack = false) {
+                if (this.isKnockedDown) return;
+
                 if (this.isBlocking && !isLowAttack) {
                     audio.playTone(400, 'square', 0.1, 0.3, 0.01);
                     createHitSparks(this.x + this.width / 2, this.y + 40, '#3b82f6');
@@ -920,11 +937,30 @@
                 createHitSparks(this.x + this.width / 2, this.y + this.height / 2);
                 screenShakeTime = 12;
                 
-                if (this.health < 0) this.health = 0;
+                if (this.health <= 0) {
+                    this.health = 0;
+                    this.triggerKnockdown(); // 觸發倒地動畫
+                }
+            }
+
+            triggerKnockdown() {
+                this.isKnockedDown = true;
+                this.isAttacking = false;
+                this.hitbox = null;
+                this.vy = -10; // 向上飛起再重摔倒地
+                this.isGrounded = false;
             }
 
             draw(ctx) {
                 ctx.save();
+                ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+
+                if (this.isKnockedDown) {
+                    ctx.rotate(this.fallAngle);
+                }
+
+                ctx.translate(-(this.x + this.width / 2), -(this.y + this.height / 2));
+
                 ctx.fillStyle = 'rgba(0,0,0,0.5)';
                 ctx.beginPath();
                 ctx.ellipse(this.x + this.width / 2, GROUND_Y, this.width / 2, 10, 0, 0, Math.PI * 2);
@@ -952,7 +988,7 @@
                 ctx.fillStyle = p.hair;
                 ctx.fillRect(this.x + 14, this.y, 48, 14);
 
-                // 經典頭帶（飄動尾巴）
+                // 經典頭帶
                 ctx.fillStyle = p.headband;
                 ctx.fillRect(this.x + 12, this.y + 12, 52, 6);
                 const tailDir = this.facing === 'right' ? -18 : 75;
@@ -962,8 +998,8 @@
                 ctx.fillStyle = p.belt;
                 ctx.fillRect(this.x + 5, this.y + 90, this.width - 10, 14);
 
-                // 如果正在蓄力龜波氣功，顯示雙手藍色氣場
-                if (this === player1 && motionInputs.isChargingHadouken) {
+                // 龜波氣功蓄力光圈
+                if (this === player1 && motionInputs.isChargingHadouken && !this.isKnockedDown) {
                     ctx.shadowColor = '#38bdf8';
                     ctx.shadowBlur = 25;
                     ctx.fillStyle = 'rgba(56, 189, 248, 0.7)';
@@ -973,14 +1009,14 @@
                     ctx.shadowBlur = 0;
                 }
 
-                if (this.isBlocking) {
+                if (this.isBlocking && !this.isKnockedDown) {
                     ctx.fillStyle = '#3b82f6';
                     ctx.fillRect(this.x + 10, this.y + 18, 55, 28);
                     ctx.fillStyle = p.skin;
                     ctx.fillRect(this.x + 18, this.y + 22, 40, 20);
                 }
 
-                if (this.isAttacking) {
+                if (this.isAttacking && !this.isKnockedDown) {
                     ctx.fillStyle = p.skin;
                     if (this.attackType === 'punch') {
                         const px = this.facing === 'right' ? this.x + this.width : this.x - 45;
@@ -998,10 +1034,12 @@
                     }
                 }
 
-                ctx.font = '8px "Press Start 2P"';
-                ctx.fillStyle = '#ffffff';
-                ctx.textAlign = 'center';
-                ctx.fillText(this.name, this.x + this.width / 2, this.y - 10);
+                if (!this.isKnockedDown) {
+                    ctx.font = '8px "Press Start 2P"';
+                    ctx.fillStyle = '#ffffff';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(this.name, this.x + this.width / 2, this.y - 10);
+                }
 
                 ctx.restore();
             }
@@ -1051,41 +1089,42 @@
 
         // --- GAME LOOP & HONG KONG STAGE RENDER ---
         function updateGame() {
-            if (gameState !== 'FIGHTING') return;
+            if (gameState !== 'FIGHTING' && gameState !== 'ROUND_OVER') return;
 
-            if (controlMode === 'MOTION') {
-                const targetGameX = 50 + motionInputs.targetXRatio * (CANVAS_WIDTH - 200);
-                player1.moveToTargetX(targetGameX);
-                player1.isBlocking = motionInputs.block;
+            if (gameState === 'FIGHTING') {
+                if (controlMode === 'MOTION') {
+                    const targetGameX = 50 + motionInputs.targetXRatio * (CANVAS_WIDTH - 200);
+                    player1.moveToTargetX(targetGameX);
+                    player1.isBlocking = motionInputs.block;
 
-                if (motionInputs.jump) player1.jump();
-                player1.crouch(motionInputs.crouch);
+                    if (motionInputs.jump) player1.jump();
+                    player1.crouch(motionInputs.crouch);
 
-                if (motionInputs.shoryuken) player1.shoryuken();
-                else if (motionInputs.special) player1.hadouken();
-                else if (motionInputs.punch) player1.punch();
-                else if (motionInputs.kick) player1.kick();
-            } else {
-                if (keys['a']) player1.moveToTargetX(player1.x - 6);
-                if (keys['d']) player1.moveToTargetX(player1.x + 6);
-            }
-
-            if (gameMode === '2P') {
-                if (keys['arrowleft']) player2.moveToTargetX(player2.x - 6);
-                if (keys['arrowright']) player2.moveToTargetX(player2.x + 6);
-            }
-
-            // 防穿模碰撞推開機制
-            const dx = player2.x - player1.x;
-            const minDist = 70;
-            if (Math.abs(dx) < minDist) {
-                const overlap = minDist - Math.abs(dx);
-                if (dx > 0) {
-                    player1.x -= overlap / 2;
-                    player2.x += overlap / 2;
+                    if (motionInputs.shoryuken) player1.shoryuken();
+                    else if (motionInputs.special) player1.hadouken();
+                    else if (motionInputs.punch) player1.punch();
+                    else if (motionInputs.kick) player1.kick();
                 } else {
-                    player1.x += overlap / 2;
-                    player2.x -= overlap / 2;
+                    if (keys['a']) player1.moveToTargetX(player1.x - 6);
+                    if (keys['d']) player1.moveToTargetX(player1.x + 6);
+                }
+
+                if (gameMode === '2P') {
+                    if (keys['arrowleft']) player2.moveToTargetX(player2.x - 6);
+                    if (keys['arrowright']) player2.moveToTargetX(player2.x + 6);
+                }
+
+                const dx = player2.x - player1.x;
+                const minDist = 70;
+                if (Math.abs(dx) < minDist && !player1.isKnockedDown && !player2.isKnockedDown) {
+                    const overlap = minDist - Math.abs(dx);
+                    if (dx > 0) {
+                        player1.x -= overlap / 2;
+                        player2.x += overlap / 2;
+                    } else {
+                        player1.x += overlap / 2;
+                        player2.x -= overlap / 2;
+                    }
                 }
             }
 
@@ -1094,7 +1133,6 @@
 
             fireballs.forEach(fb => fb.update());
 
-            // 波動拳空中抵消
             for (let i = 0; i < fireballs.length; i++) {
                 for (let j = i + 1; j < fireballs.length; j++) {
                     const fb1 = fireballs[i];
@@ -1112,42 +1150,43 @@
 
             fireballs = fireballs.filter(fb => fb && fb.active);
 
-            // 攻擊傷害判定
-            if (player1.hitbox && player2.hitStun === 0) {
-                const hb = player1.hitbox;
-                if (hb.x < player2.x + player2.width && hb.x + hb.w > player2.x &&
-                    hb.y < player2.y + player2.height && hb.y + hb.h > player2.y) {
-                    player2.takeDamage(hb.damage, hb.force, hb.isLow);
-                    player1.superMeter = Math.min(100, player1.superMeter + 15);
-                    player1.hitbox = null;
+            if (gameState === 'FIGHTING') {
+                if (player1.hitbox && player2.hitStun === 0) {
+                    const hb = player1.hitbox;
+                    if (hb.x < player2.x + player2.width && hb.x + hb.w > player2.x &&
+                        hb.y < player2.y + player2.height && hb.y + hb.h > player2.y) {
+                        player2.takeDamage(hb.damage, hb.force, hb.isLow);
+                        player1.superMeter = Math.min(100, player1.superMeter + 15);
+                        player1.hitbox = null;
+                    }
                 }
-            }
 
-            if (player2.hitbox && player1.hitStun === 0) {
-                const hb = player2.hitbox;
-                if (hb.x < player1.x + player1.width && hb.x + hb.w > player1.x &&
-                    hb.y < player1.y + player1.height && hb.y + hb.h > player1.y) {
-                    player1.takeDamage(hb.damage, hb.force, hb.isLow);
-                    player2.superMeter = Math.min(100, player2.superMeter + 15);
-                    player2.hitbox = null;
+                if (player2.hitbox && player1.hitStun === 0) {
+                    const hb = player2.hitbox;
+                    if (hb.x < player1.x + player1.width && hb.x + hb.w > player1.x &&
+                        hb.y < player1.y + player1.height && hb.y + hb.h > player1.y) {
+                        player1.takeDamage(hb.damage, hb.force, hb.isLow);
+                        player2.superMeter = Math.min(100, player2.superMeter + 15);
+                        player2.hitbox = null;
+                    }
                 }
-            }
 
-            fireballs.forEach(fb => {
-                if (!fb || !fb.active) return;
-                const target = fb.owner === 'p1' ? player2 : player1;
-                if (target && fb.x < target.x + target.width && fb.x + fb.width > target.x &&
-                    fb.y < target.y + target.height && fb.y + fb.height > target.y) {
-                    target.takeDamage(20, 10, false);
-                    fb.active = false;
-                    createHitSparks(target.x + target.width / 2, target.y + target.height / 2, fb.owner === 'p1' ? '#38bdf8' : '#dc2626');
-                }
-            });
+                fireballs.forEach(fb => {
+                    if (!fb || !fb.active) return;
+                    const target = fb.owner === 'p1' ? player2 : player1;
+                    if (target && fb.x < target.x + target.width && fb.x + fb.width > target.x &&
+                        fb.y < target.y + target.height && fb.y + fb.height > target.y) {
+                        target.takeDamage(20, 10, false);
+                        fb.active = false;
+                        createHitSparks(target.x + target.width / 2, target.y + target.height / 2, fb.owner === 'p1' ? '#38bdf8' : '#dc2626');
+                    }
+                });
+            }
 
             document.getElementById('p1Health').style.width = player1.health + '%';
             document.getElementById('p2Health').style.width = player2.health + '%';
 
-            if (player1.health <= 0 || player2.health <= 0) {
+            if (gameState === 'FIGHTING' && (player1.health <= 0 || player2.health <= 0)) {
                 endRound(player1.health <= 0 ? 'P2' : 'P1');
             }
         }
@@ -1315,8 +1354,13 @@
             clearInterval(timerInterval);
             audio.playKO();
 
-            if (winner === 'P1') p1Wins++;
-            else p2Wins++;
+            if (winner === 'P1') {
+                p1Wins++;
+                player2.triggerKnockdown(); // P2 倒地
+            } else {
+                p2Wins++;
+                player1.triggerKnockdown(); // P1 倒地
+            }
 
             updateRoundBadges();
 
