@@ -67,29 +67,35 @@
         }
     </style>
 </head>
-<body class="w-screen min-h-screen flex flex-col items-center justify-center p-2 sm:p-4 text-white relative crt">
+<body class="w-screen min-h-screen flex flex-col items-center justify-center p-1 sm:p-4 text-white relative crt">
 
     <!-- Header Control Toolbar -->
-    <div class="w-full max-w-6xl flex flex-wrap justify-between items-center mb-2 px-2 gap-2 text-xs">
-        <div class="flex items-center gap-2">
-            <span class="text-yellow-400 font-bold hidden sm:inline">STREET FIGHTER: HONG KONG STAGE</span>
-            <span class="text-slate-400 text-[10px] bg-slate-800 px-2 py-1 rounded border border-slate-700">MediaPipe AI</span>
+    <div id="toolbar" class="w-full max-w-6xl flex flex-wrap justify-between items-center mb-1 px-2 gap-1 text-[10px]">
+        <div class="flex items-center gap-1.5">
+            <span class="text-yellow-400 font-bold hidden md:inline">STREET FIGHTER: HK STAGE</span>
+            <span class="text-slate-400 text-[9px] bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">MediaPipe AI</span>
         </div>
-        <div class="flex items-center gap-2">
-            <button id="btnStartCam" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded text-[10px] font-bold border border-emerald-400 animate-pulse">
-                📷 START CAMERA
+        <div class="flex items-center gap-1.5 flex-wrap">
+            <button id="btnStartCam" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded font-bold border border-emerald-400 animate-pulse">
+                📷 CAM
             </button>
-            <button id="btnToggleControlMode" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded text-[10px] font-bold border border-indigo-400">
-                CONTROL: MOTION (WEBCAM)
+            <button id="btnToggleControlMode" class="bg-indigo-600 hover:bg-indigo-500 text-white px-2.5 py-1 rounded font-bold border border-indigo-400">
+                MOTION
             </button>
-            <button id="btnOpenCalib" class="bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded text-[10px] font-bold border border-amber-400">
-                CALIBRATE
+            <button id="btnFullscreen" class="bg-purple-600 hover:bg-purple-500 text-white px-2.5 py-1 rounded font-bold border border-purple-400">
+                📱 FULL
+            </button>
+            <button id="btnZoom" class="bg-teal-600 hover:bg-teal-500 text-white px-2.5 py-1 rounded font-bold border border-teal-400">
+                🔍 ZOOM: 100%
+            </button>
+            <button id="btnOpenCalib" class="bg-amber-600 hover:bg-amber-500 text-white px-2.5 py-1 rounded font-bold border border-amber-400">
+                ⚙️
             </button>
         </div>
     </div>
 
     <!-- Main Game Display Container -->
-    <div class="relative w-full max-w-6xl aspect-[16/9] bg-slate-950 rounded-2xl overflow-hidden border-4 border-slate-700 shadow-2xl flex flex-col justify-between vignette">
+    <div id="gameWrapper" class="relative w-full max-w-6xl aspect-[16/9] bg-slate-950 rounded-xl overflow-hidden border-4 border-slate-700 shadow-2xl flex flex-col justify-between vignette transition-all duration-200">
         
         <!-- Game Canvas -->
         <canvas id="gameCanvas" class="absolute inset-0 w-full h-full z-0 block"></canvas>
@@ -98,128 +104,128 @@
         <video id="webcamVideo" class="hidden" playsinline muted autoplay></video>
 
         <!-- Skeleton Overlay Canvas (Top Right PIP) -->
-        <div id="camFeedContainer" class="absolute top-16 right-4 z-20 w-48 sm:w-64 aspect-video bg-black/90 rounded-lg border-2 border-yellow-500/80 overflow-hidden shadow-xl transition-all">
+        <div id="camFeedContainer" class="absolute top-12 right-2 z-20 w-36 sm:w-52 aspect-video bg-black/90 rounded-lg border-2 border-yellow-500/80 overflow-hidden shadow-xl transition-all">
             <canvas id="skeletonCanvas" class="w-full h-full object-cover scale-x-[-1]"></canvas>
-            <div id="camStatus" class="absolute bottom-1 left-1 bg-black/80 text-[8px] px-1.5 py-0.5 rounded text-yellow-400">
-                Cam: Click "START CAMERA"
+            <div id="camStatus" class="absolute bottom-0.5 left-0.5 bg-black/80 text-[7px] px-1 py-0.5 rounded text-yellow-400">
+                Cam: Off
             </div>
         </div>
 
         <!-- Realtime Motion Trigger Status Bar -->
-        <div id="motionTriggerBar" class="absolute bottom-3 left-4 z-20 flex flex-wrap gap-1.5 pointer-events-none">
-            <span id="badge-left" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">◄ LEFT</span>
-            <span id="badge-right" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">RIGHT ►</span>
-            <span id="badge-crouch" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">CROUCH</span>
-            <span id="badge-jump" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">JUMP</span>
-            <span id="badge-punch" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">PUNCH</span>
-            <span id="badge-kick" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">KICK</span>
-            <span id="badge-special" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">HADOUKEN</span>
-            <span id="badge-shoryuken" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">昇龍拳 SHORYUKEN</span>
+        <div id="motionTriggerBar" class="absolute bottom-2 left-2 z-20 flex flex-wrap gap-1 pointer-events-none">
+            <span id="badge-left" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[8px] px-1.5 py-0.5 rounded">◄ LEFT</span>
+            <span id="badge-right" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[8px] px-1.5 py-0.5 rounded">RIGHT ►</span>
+            <span id="badge-crouch" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[8px] px-1.5 py-0.5 rounded">CROUCH</span>
+            <span id="badge-jump" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[8px] px-1.5 py-0.5 rounded">JUMP</span>
+            <span id="badge-punch" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[8px] px-1.5 py-0.5 rounded">PUNCH</span>
+            <span id="badge-kick" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[8px] px-1.5 py-0.5 rounded">KICK</span>
+            <span id="badge-special" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[8px] px-1.5 py-0.5 rounded">HADOUKEN</span>
+            <span id="badge-shoryuken" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[8px] px-1.5 py-0.5 rounded">SHORYUKEN</span>
         </div>
 
         <!-- HUD Layer -->
-        <div id="hud" class="relative z-10 p-4 flex flex-col justify-between h-full pointer-events-none hidden">
+        <div id="hud" class="relative z-10 p-3 flex flex-col justify-between h-full pointer-events-none hidden">
             <!-- Top HUD Bar: Health & Timer -->
-            <div class="flex justify-between items-start gap-2 sm:gap-4">
+            <div class="flex justify-between items-start gap-2">
                 <!-- Player 1 Status -->
                 <div class="flex-1 flex flex-col items-start">
-                    <div class="flex justify-between w-full text-xs sm:text-sm font-bold mb-1 drop-shadow">
+                    <div class="flex justify-between w-full text-[10px] sm:text-xs font-bold mb-1 drop-shadow">
                         <span id="p1Name" class="text-red-400">RYU (P1)</span>
                         <span id="p1Rounds" class="text-yellow-400">0 WINS</span>
                     </div>
-                    <div class="w-full bg-slate-950 border-2 border-yellow-500 h-6 sm:h-8 rounded-sm overflow-hidden relative">
+                    <div class="w-full bg-slate-950 border-2 border-yellow-500 h-5 sm:h-7 rounded-sm overflow-hidden relative">
                         <div id="p1HealthRed" class="absolute right-0 top-0 bottom-0 bg-red-600 transition-all duration-300 w-full"></div>
                         <div id="p1Health" class="absolute right-0 top-0 bottom-0 bg-gradient-to-b from-yellow-300 to-yellow-500 transition-all duration-75 w-full"></div>
                     </div>
-                    <div class="w-3/4 bg-slate-950 border border-slate-600 h-3 mt-1 rounded-sm overflow-hidden relative">
+                    <div class="w-3/4 bg-slate-950 border border-slate-600 h-2.5 mt-1 rounded-sm overflow-hidden relative">
                         <div id="p1Meter" class="h-full bg-gradient-to-r from-cyan-500 to-blue-400 w-0 transition-all duration-100"></div>
-                        <span class="absolute inset-0 flex items-center justify-center text-[8px] text-white tracking-widest">SUPER</span>
+                        <span class="absolute inset-0 flex items-center justify-center text-[7px] text-white tracking-widest">SUPER</span>
                     </div>
                 </div>
 
                 <!-- Timer -->
-                <div class="bg-slate-900 border-2 border-yellow-500 px-3 py-1 rounded text-center min-w-[60px] sm:min-w-[80px]">
-                    <div id="timer" class="text-xl sm:text-3xl font-black text-yellow-400 leading-none">99</div>
+                <div class="bg-slate-900 border-2 border-yellow-500 px-2 py-0.5 rounded text-center min-w-[50px]">
+                    <div id="timer" class="text-lg sm:text-2xl font-black text-yellow-400 leading-none">99</div>
                 </div>
 
                 <!-- Player 2 / AI Status -->
                 <div class="flex-1 flex flex-col items-end">
-                    <div class="flex justify-between w-full text-xs sm:text-sm font-bold mb-1 drop-shadow">
+                    <div class="flex justify-between w-full text-[10px] sm:text-xs font-bold mb-1 drop-shadow">
                         <span id="p2Rounds" class="text-yellow-400">0 WINS</span>
                         <span id="p2Name" class="text-red-500">KEN (CPU)</span>
                     </div>
-                    <div class="w-full bg-slate-950 border-2 border-yellow-500 h-6 sm:h-8 rounded-sm overflow-hidden relative">
+                    <div class="w-full bg-slate-950 border-2 border-yellow-500 h-5 sm:h-7 rounded-sm overflow-hidden relative">
                         <div id="p2HealthRed" class="absolute left-0 top-0 bottom-0 bg-red-600 transition-all duration-300 w-full"></div>
                         <div id="p2Health" class="absolute left-0 top-0 bottom-0 bg-gradient-to-b from-yellow-300 to-yellow-500 transition-all duration-75 w-full"></div>
                     </div>
-                    <div class="w-3/4 bg-slate-950 border border-slate-600 h-3 mt-1 rounded-sm overflow-hidden relative">
+                    <div class="w-3/4 bg-slate-950 border border-slate-600 h-2.5 mt-1 rounded-sm overflow-hidden relative">
                         <div id="p2Meter" class="h-full bg-gradient-to-l from-cyan-500 to-blue-400 w-0 transition-all duration-100"></div>
-                        <span class="absolute inset-0 flex items-center justify-center text-[8px] text-white tracking-widest">SUPER</span>
+                        <span class="absolute inset-0 flex items-center justify-center text-[7px] text-white tracking-widest">SUPER</span>
                     </div>
                 </div>
             </div>
 
             <!-- Combo Counters -->
             <div class="flex justify-between w-full pointer-events-none my-auto">
-                <div id="p1Combo" class="text-yellow-400 text-sm sm:text-2xl font-extrabold italic opacity-0 transition-opacity duration-200">
-                    <span id="p1ComboCount" class="text-2xl sm:text-4xl text-red-500">2</span> HITS!
+                <div id="p1Combo" class="text-yellow-400 text-sm font-extrabold italic opacity-0 transition-opacity duration-200">
+                    <span id="p1ComboCount" class="text-xl text-red-500">2</span> HITS!
                 </div>
-                <div id="p2Combo" class="text-yellow-400 text-sm sm:text-2xl font-extrabold italic opacity-0 transition-opacity duration-200 text-right">
-                    <span id="p2ComboCount" class="text-2xl sm:text-4xl text-blue-500">2</span> HITS!
+                <div id="p2Combo" class="text-yellow-400 text-sm font-extrabold italic opacity-0 transition-opacity duration-200 text-right">
+                    <span id="p2ComboCount" class="text-xl text-blue-500">2</span> HITS!
                 </div>
             </div>
         </div>
 
         <!-- Start / Main Menu -->
-        <div id="menuOverlay" class="absolute inset-0 z-30 bg-slate-950/90 flex flex-col items-center justify-center p-6 text-center">
-            <h1 class="title-font text-5xl sm:text-8xl tracking-wider text-yellow-400 italic font-black uppercase leading-none mb-1">
+        <div id="menuOverlay" class="absolute inset-0 z-30 bg-slate-950/90 flex flex-col items-center justify-center p-4 text-center">
+            <h1 class="title-font text-4xl sm:text-7xl tracking-wider text-yellow-400 italic font-black uppercase leading-none mb-1">
                 STREET FIGHTER
             </h1>
-            <p class="text-red-500 text-xs sm:text-sm tracking-widest mb-6 font-bold animate-pulse">HONG KONG NIGHT STAGE EDITION</p>
+            <p class="text-red-500 text-[10px] sm:text-xs tracking-widest mb-4 font-bold animate-pulse">HONG KONG NIGHT STAGE (MOBILE & DESKTOP)</p>
 
-            <div class="flex flex-col gap-3 w-full max-w-xs">
-                <button id="btnStartSingle" class="arcade-btn bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-6 rounded border-2 border-yellow-400 text-xs sm:text-sm uppercase tracking-wider">
+            <div class="flex flex-col gap-2.5 w-full max-w-xs">
+                <button id="btnStartSingle" class="arcade-btn bg-red-600 hover:bg-red-500 text-white font-bold py-2.5 px-4 rounded border-2 border-yellow-400 text-[11px] uppercase tracking-wider">
                     1 PLAYER (MOTION VS CPU)
                 </button>
-                <button id="btnStartTwo" class="arcade-btn bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded border-2 border-yellow-400 text-xs sm:text-sm uppercase tracking-wider">
-                    2 PLAYERS (MOTION VS KEYBOARD)
+                <button id="btnStartTwo" class="arcade-btn bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 px-4 rounded border-2 border-yellow-400 text-[11px] uppercase tracking-wider">
+                    2 PLAYERS (MOTION VS KEYS)
                 </button>
-                <button id="btnOpenHelp" class="arcade-btn bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2 px-4 rounded border border-slate-600 text-[10px] uppercase">
-                    MOTION GESTURE GUIDE
+                <button id="btnOpenHelp" class="arcade-btn bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2 px-3 rounded border border-slate-600 text-[10px] uppercase">
+                    📱 最佳手機橫放建議 & 指引
                 </button>
             </div>
         </div>
 
         <!-- Motion Gesture Guide Modal -->
-        <div id="helpModal" class="absolute inset-0 z-40 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center hidden">
-            <h2 class="text-yellow-400 text-base sm:text-xl font-bold mb-3">BODY MOTION CONTROLS</h2>
+        <div id="helpModal" class="absolute inset-0 z-40 bg-slate-950/95 flex flex-col items-center justify-center p-4 text-center hidden">
+            <h2 class="text-yellow-400 text-sm sm:text-lg font-bold mb-2">📱 手機橫放與動作控制指南</h2>
             
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left text-[10px] sm:text-xs max-w-2xl mb-4 leading-relaxed">
-                <div class="bg-slate-900 p-3 rounded border border-red-500/50">
-                    <p class="text-red-400 font-bold mb-1">POSITION & MOVEMENT:</p>
-                    <p>• <span class="text-yellow-300">Stand Center</span>: Stop / Idle (站中間不動)</p>
-                    <p>• <span class="text-yellow-300">Step Left / Right</span>: Move Character</p>
-                    <p>• <span class="text-yellow-300">Squat / Lower Hips</span>: Crouch</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left text-[9px] sm:text-[11px] max-w-xl mb-3 leading-relaxed">
+                <div class="bg-slate-900 p-2.5 rounded border border-red-500/50">
+                    <p class="text-red-400 font-bold mb-1">📱 手機最佳體驗：</p>
+                    <p>• 請將手機<span class="text-yellow-300">橫放 (Landscape)</span> 並固定。</p>
+                    <p>• 點擊上方 <span class="text-purple-400">FULL</span> 按鈕進入全螢幕。</p>
+                    <p>• 使用 <span class="text-teal-400">ZOOM</span> 按鈕調整畫面大小。</p>
                 </div>
-                <div class="bg-slate-900 p-3 rounded border border-blue-500/50">
-                    <p class="text-blue-400 font-bold mb-1">ATTACKS & SPECIALS:</p>
-                    <p>• <span class="text-yellow-300">Punch Forward</span>: Light Punch</p>
-                    <p>• <span class="text-yellow-300">Raise Knee / Kick</span>: Heavy Kick</p>
-                    <p>• <span class="text-yellow-300">Both Hands Forward</span>: Hadouken (波動拳)</p>
-                    <p>• <span class="text-red-400 font-bold">Raise Fist High</span>: Shoryuken (昇龍拳)</p>
+                <div class="bg-slate-900 p-2.5 rounded border border-blue-500/50">
+                    <p class="text-blue-400 font-bold mb-1">🥋 動作招式：</p>
+                    <p>• <span class="text-yellow-300">站中間</span>：靜止不動</p>
+                    <p>• <span class="text-yellow-300">身體移向左/右</span>：移動</p>
+                    <p>• <span class="text-yellow-300">雙手向前推</span>：波動拳 (Hadouken)</p>
+                    <p>• <span class="text-red-400 font-bold">單手高舉</span>：昇龍拳 (Shoryuken)</p>
                 </div>
             </div>
 
             <button id="btnCloseHelp" class="arcade-btn bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-6 rounded text-xs">
-                CLOSE GUIDE
+                關閉指南
             </button>
         </div>
 
         <!-- Calibration Modal -->
-        <div id="calibModal" class="absolute inset-0 z-40 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center hidden">
-            <h2 class="text-amber-400 text-base sm:text-xl font-bold mb-2">MOTION SENSITIVITY CALIBRATION</h2>
+        <div id="calibModal" class="absolute inset-0 z-40 bg-slate-950/95 flex flex-col items-center justify-center p-4 text-center hidden">
+            <h2 class="text-amber-400 text-sm sm:text-lg font-bold mb-2">MOTION SENSITIVITY</h2>
 
-            <div class="flex flex-col gap-3 w-full max-w-sm text-left text-xs mb-6">
+            <div class="flex flex-col gap-2 w-full max-w-xs text-left text-xs mb-4">
                 <div>
                     <label class="text-yellow-400 text-[10px] block mb-1">ARM PUNCH SENSITIVITY</label>
                     <input type="range" id="sensPunch" min="0.15" max="0.4" step="0.02" value="0.25" class="w-full">
@@ -231,19 +237,19 @@
             </div>
 
             <button id="btnSaveCalib" class="arcade-btn bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 px-6 rounded text-xs">
-                SAVE & CONTINUE
+                儲存設定
             </button>
         </div>
 
         <!-- Game Over Modal -->
-        <div id="gameOverOverlay" class="absolute inset-0 z-30 bg-slate-950/90 flex flex-col items-center justify-center p-6 text-center hidden">
-            <h2 id="winnerText" class="title-font text-5xl sm:text-7xl text-yellow-400 italic mb-2 drop-shadow-md">
+        <div id="gameOverOverlay" class="absolute inset-0 z-30 bg-slate-950/90 flex flex-col items-center justify-center p-4 text-center hidden">
+            <h2 id="winnerText" class="title-font text-4xl sm:text-6xl text-yellow-400 italic mb-2 drop-shadow-md">
                 PLAYER 1 WINS!
             </h2>
-            <p id="winnerSubtext" class="text-xs sm:text-sm text-slate-300 mb-6">VICTORY!</p>
+            <p id="winnerSubtext" class="text-xs text-slate-300 mb-4">VICTORY!</p>
 
-            <button id="btnRetry" class="arcade-btn bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-black py-3 px-8 rounded text-sm sm:text-base border-2 border-white uppercase tracking-wider">
-                PLAY AGAIN
+            <button id="btnRetry" class="arcade-btn bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-black py-2.5 px-6 rounded text-xs sm:text-sm border-2 border-white uppercase tracking-wider">
+                再玩一次
             </button>
         </div>
 
@@ -393,7 +399,7 @@
 
         const sens = {
             punch: 0.25,
-            position: 0.12 // 站立不動物理範圍 (Deadzone)
+            position: 0.12
         };
 
         const motionInputs = {
@@ -413,7 +419,7 @@
         async function initCameraAndPose() {
             const videoElement = document.getElementById('webcamVideo');
             const camStatus = document.getElementById('camStatus');
-            camStatus.textContent = "Cam: Connecting...";
+            camStatus.textContent = "Connecting...";
 
             try {
                 poseTracker = new Pose({
@@ -430,8 +436,9 @@
 
                 poseTracker.onResults(onPoseResults);
 
+                // 手機適配：優先嘗試前置相機與合適解像度
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { width: 640, height: 360, facingMode: 'user' },
+                    video: { width: { ideal: 640 }, height: { ideal: 360 }, facingMode: 'user' },
                     audio: false
                 });
 
@@ -439,10 +446,10 @@
                 await videoElement.play();
 
                 isCamActive = true;
-                camStatus.textContent = "Cam: Active";
-                camStatus.className = "absolute bottom-1 left-1 bg-black/80 text-[8px] px-1.5 py-0.5 rounded text-emerald-400";
+                camStatus.textContent = "Active";
+                camStatus.className = "absolute bottom-0.5 left-0.5 bg-black/80 text-[7px] px-1 py-0.5 rounded text-emerald-400";
                 document.getElementById('btnStartCam').classList.remove('animate-pulse');
-                document.getElementById('btnStartCam').textContent = "📷 CAM READY";
+                document.getElementById('btnStartCam').textContent = "📷 READY";
 
                 async function processFrame() {
                     if (isCamActive && videoElement.readyState >= 2) {
@@ -454,11 +461,11 @@
 
             } catch (err) {
                 console.error("Cam Error:", err);
-                camStatus.textContent = "Cam Access Denied";
+                camStatus.textContent = "Denied";
             }
         }
 
-        // --- 修正左右方向與站立不動物理機制 ---
+        // --- 動作與波動拳判定優化 ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -494,13 +501,12 @@
             motionInputs.special = false;
             motionInputs.shoryuken = false;
 
-            // 1. 修正左右方向調轉與站立不動 (Deadzone 範圍 0.5 ± sens.position)
-            // 當你在中間（0.38 ~ 0.62 之間）時，完全不動 (motionInputs.left 和 right 都是 false)
+            // 1. 移動控制
             const positionOffset = midShoulderX - 0.5;
             if (positionOffset < -sens.position) {
-                motionInputs.right = true; // 身體向左傾/站，角色向右行
+                motionInputs.right = true; 
             } else if (positionOffset > sens.position) {
-                motionInputs.left = true;  // 身體向右傾/站，角色向左行
+                motionInputs.left = true;  
             }
 
             // 2. 下蹲
@@ -519,13 +525,14 @@
                 }
             }
 
-            // 4. 波動拳
+            // 4. 波動拳優化判定：雙手靠近且手腕明顯向前推出 (Z軸更靠前或手臂伸展)
             const handDistance = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
-            if (!motionInputs.shoryuken && handDistance < 0.12 && leftWrist.y < leftHip.y && rightWrist.y < rightHip.y) {
+            const isHandsForward = leftWrist.z < -0.1 || rightWrist.z < -0.1 || (Math.abs(leftWrist.x - leftShoulder.x) > 0.2 && Math.abs(rightWrist.x - rightShoulder.x) > 0.2);
+            if (!motionInputs.shoryuken && handDistance < 0.25 && isHandsForward) {
                 motionInputs.special = true;
             }
 
-            // 5. 出拳
+            // 5. 普通出拳
             const leftArmExtension = Math.abs(leftWrist.x - leftShoulder.x);
             const rightArmExtension = Math.abs(rightWrist.x - rightShoulder.x);
             if (!motionInputs.special && !motionInputs.shoryuken && (leftArmExtension > sens.punch || rightArmExtension > sens.punch)) {
@@ -1165,7 +1172,7 @@
             }, 2500);
         }
 
-        // --- UI LISTENERS ---
+        // --- UI & MOBILE FULLSCREEN / ZOOM LISTENERS ---
         document.getElementById('btnStartCam').addEventListener('click', () => {
             initCameraAndPose();
         });
@@ -1180,7 +1187,30 @@
 
         document.getElementById('btnToggleControlMode').addEventListener('click', () => {
             controlMode = controlMode === 'MOTION' ? 'KEYBOARD' : 'MOTION';
-            document.getElementById('btnToggleControlMode').textContent = `CONTROL: ${controlMode} ${controlMode === 'MOTION' ? '(WEBCAM)' : '(KEYS)'}`;
+            document.getElementById('btnToggleControlMode').textContent = controlMode;
+        });
+
+        // 📱 全螢幕切換功能
+        document.getElementById('btnFullscreen').addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {});
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        });
+
+        // 🔍 畫面大小縮放切換 (100% -> 125% -> 150% -> 75% -> 100%)
+        let currentZoomLevel = 1;
+        const zoomLevels = [1, 1.25, 1.5, 0.85];
+        const zoomLabels = ["ZOOM: 100%", "ZOOM: 125%", "ZOOM: 150%", "ZOOM: 85%"];
+        document.getElementById('btnZoom').addEventListener('click', () => {
+            currentZoomLevel = (currentZoomLevel + 1) % zoomLevels.length;
+            const scale = zoomLevels[currentZoomLevel];
+            document.getElementById('gameWrapper').style.transform = `scale(${scale})`;
+            document.getElementById('gameWrapper').style.transformOrigin = 'center center';
+            document.getElementById('btnZoom').textContent = zoomLabels[currentZoomLevel];
         });
 
         document.getElementById('btnOpenHelp').addEventListener('click', () => {
