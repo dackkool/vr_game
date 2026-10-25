@@ -6,7 +6,7 @@
     <title>Street Fighter Motion Arcade - MediaPipe Pose Edition</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Google Fonts for Retro Arcade Typography -->
+    <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Teko:wght@700&display=swap" rel="stylesheet">
 
     <!-- Google MediaPipe Pose CDN Scripts -->
@@ -36,7 +36,6 @@
             transform: translateY(4px);
             box-shadow: 0 2px 0 #1e293b, 0 4px 5px rgba(0,0,0,0.5);
         }
-        /* CRT Scanline Overlay Effect */
         .crt::before {
             content: " ";
             display: block;
@@ -51,7 +50,6 @@
         .vignette {
             box-shadow: inset 0 0 100px rgba(0,0,0,0.85);
         }
-        /* Gesture trigger highlight badge */
         .action-badge {
             transition: all 0.15s ease;
         }
@@ -72,11 +70,11 @@
             <span class="text-slate-400 text-[10px] bg-slate-800 px-2 py-1 rounded border border-slate-700">MediaPipe Pose AI</span>
         </div>
         <div class="flex items-center gap-2">
+            <button id="btnStartCam" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded text-[10px] font-bold border border-emerald-400 animate-pulse">
+                📷 START CAMERA
+            </button>
             <button id="btnToggleControlMode" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded text-[10px] font-bold border border-indigo-400">
                 CONTROL: MOTION (WEBCAM)
-            </button>
-            <button id="btnToggleCamFeed" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded text-[10px] border border-slate-600">
-                CAM FEED: ON
             </button>
             <button id="btnOpenCalib" class="bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded text-[10px] font-bold border border-amber-400">
                 CALIBRATE
@@ -91,13 +89,13 @@
         <canvas id="gameCanvas" class="absolute inset-0 w-full h-full z-0 block"></canvas>
 
         <!-- Webcam Stream (Hidden Element for MediaPipe input) -->
-        <video id="webcamVideo" class="hidden" playsinline></video>
+        <video id="webcamVideo" class="hidden" playsinline muted autoplay></video>
 
         <!-- Skeleton Overlay Canvas (Top Right PIP) -->
-        <div id="camFeedContainer" class="absolute top-16 right-4 z-20 w-48 sm:w-64 aspect-video bg-black/80 rounded-lg border-2 border-yellow-500/80 overflow-hidden shadow-xl transition-all">
+        <div id="camFeedContainer" class="absolute top-16 right-4 z-20 w-48 sm:w-64 aspect-video bg-black/90 rounded-lg border-2 border-yellow-500/80 overflow-hidden shadow-xl transition-all">
             <canvas id="skeletonCanvas" class="w-full h-full object-cover scale-x-[-1]"></canvas>
             <div id="camStatus" class="absolute bottom-1 left-1 bg-black/80 text-[8px] px-1.5 py-0.5 rounded text-yellow-400">
-                Cam: Initializing...
+                Cam: Click "START CAMERA"
             </div>
         </div>
 
@@ -367,9 +365,9 @@
         skeletonCanvas.height = 180;
 
         // Game Configuration States
-        let controlMode = 'MOTION'; // 'MOTION' or 'KEYBOARD'
-        let gameMode = '1P'; // '1P' (vs AI) or '2P' (Motion P1 vs Keyboard P2)
-        let gameState = 'MENU'; // 'MENU', 'ROUND_INTRO', 'FIGHTING', 'ROUND_OVER', 'GAME_OVER'
+        let controlMode = 'MOTION'; 
+        let gameMode = '1P'; 
+        let gameState = 'MENU'; 
         let roundTime = 99;
         let timerInterval = null;
         let p1Wins = 0;
@@ -390,7 +388,6 @@
             lean: 0.06
         };
 
-        // Current Active Motion State Triggers for Player 1
         const motionInputs = {
             left: false,
             right: false,
@@ -401,53 +398,66 @@
             special: false
         };
 
-        // --- MEDIAPIPE POSE TRACKING INITIALIZATION ---
+        // --- MEDIAPIPE POSE & WEBCAM STARTER ---
         let poseTracker = null;
-        let cameraUtils = null;
-        let isCamActive = true;
+        let isCamActive = false;
         let stanceBaseX = 0.5;
 
-        function initMediaPipePose() {
+        async function initCameraAndPose() {
             const videoElement = document.getElementById('webcamVideo');
             const camStatus = document.getElementById('camStatus');
+            camStatus.textContent = "Cam: Requesting Permission...";
 
-            poseTracker = new Pose({
-                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
-            });
+            try {
+                // Initialize MediaPipe Pose Instance
+                poseTracker = new Pose({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+                });
 
-            poseTracker.setOptions({
-                modelComplexity: 1,
-                smoothLandmarks: true,
-                enableSegmentation: false,
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
-            });
+                poseTracker.setOptions({
+                    modelComplexity: 1,
+                    smoothLandmarks: true,
+                    enableSegmentation: false,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
 
-            poseTracker.onResults(onPoseResults);
+                poseTracker.onResults(onPoseResults);
 
-            cameraUtils = new Camera(videoElement, {
-                onFrame: async () => {
-                    if (isCamActive) {
-                        await poseTracker.send({ image: videoElement });
-                    }
-                },
-                width: 640,
-                height: 360
-            });
+                // Request Native Web Cam Stream
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 640, height: 360, facingMode: 'user' },
+                    audio: false
+                });
 
-            cameraUtils.start().then(() => {
+                videoElement.srcObject = stream;
+                await videoElement.play();
+
+                isCamActive = true;
                 camStatus.textContent = "Cam: Active";
                 camStatus.className = "absolute bottom-1 left-1 bg-black/80 text-[8px] px-1.5 py-0.5 rounded text-emerald-400";
-            }).catch(err => {
-                console.error("Webcam camera error:", err);
-                camStatus.textContent = "Cam: Failed / Denied";
+                document.getElementById('btnStartCam').classList.remove('animate-pulse');
+                document.getElementById('btnStartCam').textContent = "📷 CAM READY";
+
+                // Continuous Frame Processing Loop
+                async function processFrame() {
+                    if (isCamActive && videoElement.readyState >= 2) {
+                        await poseTracker.send({ image: videoElement });
+                    }
+                    requestAnimationFrame(processFrame);
+                }
+                processFrame();
+
+            } catch (err) {
+                console.error("Camera Init Error:", err);
+                camStatus.textContent = "Cam Error / Access Denied";
                 camStatus.className = "absolute bottom-1 left-1 bg-black/80 text-[8px] px-1.5 py-0.5 rounded text-red-400";
-            });
+                alert("無法開啟鏡頭！請確認：\n1. 瀏覽器已允許攝影機權限\n2. 網址為 https:// 或 localhost\n3. 鏡頭未被其他軟體占用");
+            }
         }
 
         // --- POSE RECOGNITION ALGORITHM ---
         function onPoseResults(results) {
-            // Draw skeleton on PiP overlay canvas
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
             if (results.image) {
@@ -460,14 +470,11 @@
             }
 
             const lm = results.poseLandmarks;
-
-            // Draw skeleton lines
             drawSkeleton(sCtx, lm);
             sCtx.restore();
 
             if (controlMode !== 'MOTION') return;
 
-            // Extract Landmark Positions (0..1 normalized coords)
             const leftShoulder = lm[11], rightShoulder = lm[12];
             const leftWrist = lm[15], rightWrist = lm[16];
             const leftHip = lm[23], rightHip = lm[24];
@@ -476,7 +483,6 @@
             const midShoulderX = (leftShoulder.x + rightShoulder.x) / 2;
             const midHipY = (leftHip.y + rightHip.y) / 2;
 
-            // Reset Motion State
             motionInputs.left = false;
             motionInputs.right = false;
             motionInputs.crouch = false;
@@ -485,43 +491,37 @@
             motionInputs.kick = false;
             motionInputs.special = false;
 
-            // 1. Lean Movement (Left / Right) - Inverted for mirror display
+            // Lean Movement
             const leanOffset = midShoulderX - stanceBaseX;
-            if (leanOffset > sens.lean) {
-                motionInputs.left = true; // Mirrored
-            } else if (leanOffset < -sens.lean) {
-                motionInputs.right = true;
-            }
+            if (leanOffset > sens.lean) motionInputs.left = true;
+            else if (leanOffset < -sens.lean) motionInputs.right = true;
 
-            // 2. Crouch (Hip level lowers)
-            if (midHipY > 0.68) {
-                motionInputs.crouch = true;
-            }
+            // Crouch
+            if (midHipY > 0.68) motionInputs.crouch = true;
 
-            // 3. Jump (Hands raised high above head)
+            // Jump
             if (leftWrist.y < leftShoulder.y - 0.2 && rightWrist.y < rightShoulder.y - 0.2) {
                 motionInputs.jump = true;
             }
 
-            // 4. Hadouken / Special Attack (Both hands close together in front of torso)
+            // Hadouken / Special Attack
             const handDistance = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
             if (handDistance < 0.12 && leftWrist.y < leftHip.y && rightWrist.y < rightHip.y) {
                 motionInputs.special = true;
             }
 
-            // 5. Punch (Arm extended forward horizontally)
+            // Punch
             const leftArmExtension = Math.abs(leftWrist.x - leftShoulder.x);
             const rightArmExtension = Math.abs(rightWrist.x - rightShoulder.x);
             if (!motionInputs.special && (leftArmExtension > sens.punch || rightArmExtension > sens.punch)) {
                 motionInputs.punch = true;
             }
 
-            // 6. Kick (Leg / Knee raised above normal standing hip level)
+            // Kick
             if (leftKnee.y < leftHip.y + sens.kick || rightKnee.y < rightHip.y + sens.kick) {
                 motionInputs.kick = true;
             }
 
-            // Update Trigger Badges UI
             updateTriggerBadges();
         }
 
@@ -530,7 +530,6 @@
             ctx.strokeStyle = '#38bdf8';
             ctx.lineWidth = 2;
 
-            // Key connections
             const connections = [
                 [11, 12], [11, 13], [13, 15], [12, 14], [14, 16],
                 [11, 23], [12, 24], [23, 24], [23, 25], [24, 26]
@@ -675,7 +674,6 @@
                     return;
                 }
 
-                // Gravity physics
                 if (!this.isGrounded) {
                     this.vy += GRAVITY;
                     this.y += this.vy;
@@ -686,7 +684,6 @@
                     }
                 }
 
-                // Attack animation frame countdown
                 if (this.isAttacking) {
                     this.attackFrame--;
                     if (this.attackFrame <= 0) {
@@ -696,7 +693,6 @@
                     }
                 }
 
-                // AI Logic for Player 2
                 if (this.isAI && gameState === 'FIGHTING') {
                     this.updateAI(opponent);
                 }
@@ -720,7 +716,6 @@
                     this.x += (dist > 0 ? -3 : 3);
                 }
 
-                // Boundaries
                 if (this.x < 20) this.x = 20;
                 if (this.x > CANVAS_WIDTH - this.width - 20) this.x = CANVAS_WIDTH - this.width - 20;
             }
@@ -817,30 +812,24 @@
 
             draw(ctx) {
                 ctx.save();
-                // Fighter Shadow
                 ctx.fillStyle = 'rgba(0,0,0,0.4)';
                 ctx.beginPath();
                 ctx.ellipse(this.x + this.width / 2, GROUND_Y, this.width / 2, 10, 0, 0, Math.PI * 2);
                 ctx.fill();
 
-                // Retro Arcade Style Fighter Sprite Rendering
                 const p = this.palette;
-                ctx.fillStyle = p.gi; // Gi / Outfit Color
+                ctx.fillStyle = p.gi;
                 ctx.fillRect(this.x, this.y + 40, this.width, this.height - 40);
 
-                // Head & Skin
                 ctx.fillStyle = p.skin;
                 ctx.fillRect(this.x + 15, this.y, 40, 40);
 
-                // Headband
                 ctx.fillStyle = p.headband;
                 ctx.fillRect(this.x + 10, this.y + 10, 50, 10);
 
-                // Belt
                 ctx.fillStyle = p.belt;
                 ctx.fillRect(this.x, this.y + 90, this.width, 12);
 
-                // Action Attack Extended Limbs
                 if (this.isAttacking) {
                     ctx.fillStyle = p.skin;
                     if (this.attackType === 'punch') {
@@ -852,7 +841,6 @@
                     }
                 }
 
-                // Character Name Tag
                 ctx.font = '8px "Press Start 2P"';
                 ctx.fillStyle = '#ffffff';
                 ctx.textAlign = 'center';
@@ -862,7 +850,6 @@
             }
         }
 
-        // Instantiate Fighters
         const player1 = new Fighter({
             x: 250, y: GROUND_Y - 140,
             color: '#dc2626',
@@ -877,7 +864,7 @@
             name: 'KEN (CPU)', isAI: true, facing: 'left'
         });
 
-        // --- INPUT & CONTROLS LISTENER ---
+        // --- INPUT & CONTROLS LISTENERS ---
         window.addEventListener('keydown', (e) => {
             keys[e.key.toLowerCase()] = true;
             audio.init();
@@ -889,7 +876,6 @@
                 if (e.key.toLowerCase() === 'k') player1.kick();
                 if (e.key.toLowerCase() === 'l') player1.hadouken();
 
-                // P2 Keyboard Controls (for 2P mode)
                 if (gameMode === '2P') {
                     if (e.key === 'ArrowUp') player2.jump();
                     if (e.key === 'ArrowDown') player2.crouch(true);
@@ -910,7 +896,6 @@
         function updateGame() {
             if (gameState !== 'FIGHTING') return;
 
-            // Handle P1 Control input (Motion or Keyboard)
             if (controlMode === 'MOTION') {
                 if (motionInputs.left) player1.move('left');
                 if (motionInputs.right) player1.move('right');
@@ -921,38 +906,33 @@
                 if (motionInputs.kick) player1.kick();
                 if (motionInputs.special) player1.hadouken();
             } else {
-                // Keyboard P1 Mode
                 if (keys['a']) player1.move('left');
                 if (keys['d']) player1.move('right');
                 player1.block((keys['a'] && player1.facing === 'left') || (keys['d'] && player1.facing === 'right'));
             }
 
-            // Handle P2 Movement in 2P mode
             if (gameMode === '2P') {
                 if (keys['arrowleft']) player2.move('left');
                 if (keys['arrowright']) player2.move('right');
             }
 
-            // Update Characters
             player1.update(player2);
             player2.update(player1);
 
-            // Update Fireballs
             fireballs.forEach(fb => fb.update());
             fireballs = fireballs.filter(fb => fb.active);
 
-            // Check Hitbox Collisions (P1 attacking P2)
+            // Collisions
             if (player1.hitbox && player2.hitStun === 0) {
                 const hb = player1.hitbox;
                 if (hb.x < player2.x + player2.width && hb.x + hb.w > player2.x &&
                     hb.y < player2.y + player2.height && hb.y + hb.h > player2.y) {
                     player2.takeDamage(hb.damage, hb.force);
                     player1.superMeter = Math.min(100, player1.superMeter + 15);
-                    player1.hitbox = null; // Prevent multi-hit per swing
+                    player1.hitbox = null;
                 }
             }
 
-            // Check Hitbox Collisions (P2 attacking P1)
             if (player2.hitbox && player1.hitStun === 0) {
                 const hb = player2.hitbox;
                 if (hb.x < player1.x + player1.width && hb.x + hb.w > player1.x &&
@@ -963,7 +943,6 @@
                 }
             }
 
-            // Check Fireball Collisions
             fireballs.forEach(fb => {
                 const target = fb.owner === 'p1' ? player2 : player1;
                 if (fb.x < target.x + target.width && fb.x + fb.width > target.x &&
@@ -974,13 +953,11 @@
                 }
             });
 
-            // Update HUD UI Elements
             document.getElementById('p1Health').style.width = player1.health + '%';
             document.getElementById('p2Health').style.width = player2.health + '%';
             document.getElementById('p1Meter').style.width = player1.superMeter + '%';
             document.getElementById('p2Meter').style.width = player2.superMeter + '%';
 
-            // Check Round Win / KO Condition
             if (player1.health <= 0 || player2.health <= 0) {
                 endRound(player1.health <= 0 ? 'P2' : 'P1');
             }
@@ -990,13 +967,11 @@
             ctx.save();
             ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-            // Screen Shake Effect
             if (screenShakeTime > 0) {
                 screenShakeTime--;
                 ctx.translate((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10);
             }
 
-            // Background Arcade Stage: Hong Kong Retro Street at Night
             const bgGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
             bgGrad.addColorStop(0, '#090d16');
             bgGrad.addColorStop(0.7, '#1e1b4b');
@@ -1004,7 +979,6 @@
             ctx.fillStyle = bgGrad;
             ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-            // Neon Arcade Signs & Background Details
             ctx.fillStyle = '#f43f5e';
             ctx.fillRect(120, 100, 160, 80);
             ctx.fillStyle = '#38bdf8';
@@ -1014,22 +988,18 @@
             ctx.fillText('ARCADE 街機', 140, 145);
             ctx.fillText('FIGHT CLUB', 740, 135);
 
-            // Stage Floor / Ground
             ctx.fillStyle = '#0f172a';
             ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
             ctx.fillStyle = '#f59e0b';
             ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, 6);
 
-            // Draw Fighters
             player1.draw(ctx);
             player2.draw(ctx);
 
-            // Draw Fireballs & Particles
             fireballs.forEach(fb => fb.draw(ctx));
             particles.forEach(pt => { pt.update(); pt.draw(ctx); });
             particles = particles.filter(pt => pt.life > 0);
 
-            // Draw Overlay Banner Text (ROUND 1, FIGHT, KO)
             if (overlayText) {
                 ctx.font = 'italic 70px "Teko", sans-serif';
                 ctx.fillStyle = '#fbbf24';
@@ -1059,6 +1029,9 @@
         function startMatch(mode) {
             gameMode = mode;
             audio.init();
+            if (!isCamActive && controlMode === 'MOTION') {
+                initCameraAndPose();
+            }
             document.getElementById('menuOverlay').classList.add('hidden');
             document.getElementById('hud').classList.remove('hidden');
 
@@ -1123,6 +1096,10 @@
         }
 
         // --- UI EVENT LISTENERS ---
+        document.getElementById('btnStartCam').addEventListener('click', () => {
+            initCameraAndPose();
+        });
+
         document.getElementById('btnStartSingle').addEventListener('click', () => startMatch('1P'));
         document.getElementById('btnStartTwo').addEventListener('click', () => startMatch('2P'));
 
@@ -1136,17 +1113,11 @@
             document.getElementById('btnToggleControlMode').textContent = `CONTROL: ${controlMode} ${controlMode === 'MOTION' ? '(WEBCAM)' : '(KEYS)'}`;
         });
 
-        document.getElementById('btnToggleCamFeed').addEventListener('click', () => {
-            isCamActive = !isCamActive;
-            const container = document.getElementById('camFeedContainer');
-            container.style.display = isCamActive ? 'block' : 'none';
-            document.getElementById('btnToggleCamFeed').textContent = `CAM FEED: ${isCamActive ? 'ON' : 'OFF'}`;
-        });
-
         document.getElementById('btnOpenHelp').addEventListener('click', () => {
             document.getElementById('helpModal').classList.remove('hidden');
         });
         document.getElementById('btnCloseHelp').addEventListener('click', () => {
+            document.getElementById('helpModal').classList.hidden = true;
             document.getElementById('helpModal').classList.add('hidden');
         });
 
@@ -1160,9 +1131,8 @@
             document.getElementById('calibModal').classList.add('hidden');
         });
 
-        // Initialize MediaPipe Pose on startup
+        // Initialize Render Loop
         window.addEventListener('load', () => {
-            initMediaPipePose();
             requestAnimationFrame(gameLoop);
         });
     </script>
