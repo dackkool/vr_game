@@ -509,7 +509,6 @@
             }
 
             // 2. 根據身體轉向決定角色面向 (Facing)
-            // 當您身體正面朝向右側或向右轉時，角色面向右；反之面向左
             if (rightShoulder.z < leftShoulder.z - 0.05) {
                 player1.facing = 'right';
             } else if (leftShoulder.z < rightShoulder.z - 0.05) {
@@ -735,7 +734,6 @@
 
             updateAI(opponent) {
                 const dist = opponent.x - this.x;
-                // AI 自動面向玩家
                 this.facing = opponent.x > this.x ? 'right' : 'left';
 
                 if (Math.random() < 0.03 && this.isGrounded && !this.isAttacking) {
@@ -809,7 +807,6 @@
                 this.hitbox = { x: hx, y: this.y + 60, w: 60, h: 35, damage: 13, force: 8 };
             }
 
-            // ⚡ 波動拳動作修復：增加雙手向前推的出招動畫，並射出光球
             hadouken() {
                 if (this.isAttacking || this.hitStun > 0) return;
                 this.isAttacking = true;
@@ -871,7 +868,6 @@
                 ctx.fillStyle = p.belt;
                 ctx.fillRect(this.x, this.y + 85, this.width, 12);
 
-                // 攻擊時的肢體動作動畫繪製
                 if (this.isAttacking) {
                     ctx.fillStyle = p.skin;
                     if (this.attackType === 'punch') {
@@ -881,7 +877,6 @@
                         const kx = this.facing === 'right' ? this.x + this.width : this.x - 60;
                         ctx.fillRect(kx, this.y + 70, 60, 22);
                     } else if (this.attackType === 'hadouken') {
-                        // 波動拳雙手向前推動畫
                         const hx = this.facing === 'right' ? this.x + this.width : this.x - 55;
                         ctx.fillRect(hx, this.y + 38, 55, 20);
                     } else if (this.attackType === 'shoryuken') {
@@ -993,10 +988,11 @@
                 }
             }
 
+            // ⚡ 修正碰撞檢測 Bug：將 hb.height 改為 fb.height
             fireballs.forEach(fb => {
                 const target = fb.owner === 'p1' ? player2 : player1;
                 if (fb.x < target.x + target.width && fb.x + fb.width > target.x &&
-                    fb.y < target.y + target.height && fb.y + hb.height > target.y) {
+                    fb.y < target.y + target.height && fb.y + fb.height > target.y) {
                     target.takeDamage(20, 10);
                     fb.active = false;
                     createHitSparks(target.x + target.width / 2, target.y + target.height / 2, fb.owner === 'p1' ? '#38bdf8' : '#dc2626');
