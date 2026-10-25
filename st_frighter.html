@@ -18,8 +18,15 @@
             background-color: #0b0f19;
             font-family: 'Press Start 2P', monospace;
             user-select: none;
-            overflow-x: hidden;
+            overflow: hidden;
             touch-action: manipulation;
+            margin: 0;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
         }
         .arcade-font {
             font-family: 'Press Start 2P', monospace;
@@ -30,11 +37,11 @@
         }
         .arcade-btn {
             transition: all 0.1s ease;
-            box-shadow: 0 6px 0 #1e293b, 0 10px 10px rgba(0,0,0,0.5);
+            box-shadow: 0 4px 0 #1e293b, 0 6px 6px rgba(0,0,0,0.5);
         }
         .arcade-btn:active {
-            transform: translateY(4px);
-            box-shadow: 0 2px 0 #1e293b, 0 4px 5px rgba(0,0,0,0.5);
+            transform: translateY(3px);
+            box-shadow: 0 1px 0 #1e293b, 0 2px 3px rgba(0,0,0,0.5);
         }
         .crt::before {
             content: " ";
@@ -67,10 +74,10 @@
         }
     </style>
 </head>
-<body class="w-screen min-h-screen flex flex-col items-center justify-center p-1 sm:p-4 text-white relative crt">
+<body class="relative crt text-white">
 
     <!-- Header Control Toolbar -->
-    <div id="toolbar" class="w-full max-w-6xl flex flex-wrap justify-between items-center mb-1 px-2 gap-1 text-[10px]">
+    <div id="toolbar" class="w-full max-w-6xl flex flex-wrap justify-between items-center px-3 py-1 gap-1 text-[10px] z-20">
         <div class="flex items-center gap-1.5">
             <span class="text-yellow-400 font-bold hidden md:inline">STREET FIGHTER: HK STAGE</span>
             <span class="text-slate-400 text-[9px] bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">MediaPipe AI</span>
@@ -85,17 +92,14 @@
             <button id="btnFullscreen" class="bg-purple-600 hover:bg-purple-500 text-white px-2.5 py-1 rounded font-bold border border-purple-400">
                 📱 FULL
             </button>
-            <button id="btnZoom" class="bg-teal-600 hover:bg-teal-500 text-white px-2.5 py-1 rounded font-bold border border-teal-400">
-                🔍 ZOOM: 100%
-            </button>
             <button id="btnOpenCalib" class="bg-amber-600 hover:bg-amber-500 text-white px-2.5 py-1 rounded font-bold border border-amber-400">
                 ⚙️
             </button>
         </div>
     </div>
 
-    <!-- Main Game Display Container -->
-    <div id="gameWrapper" class="relative w-full max-w-6xl aspect-[16/9] bg-slate-950 rounded-xl overflow-hidden border-4 border-slate-700 shadow-2xl flex flex-col justify-between vignette transition-all duration-200">
+    <!-- Main Game Display Container (Auto Fit Screen Ratio) -->
+    <div id="gameWrapper" class="relative bg-slate-950 rounded-xl overflow-hidden border-4 border-slate-700 shadow-2xl flex flex-col justify-between vignette transition-all duration-200">
         
         <!-- Game Canvas -->
         <canvas id="gameCanvas" class="absolute inset-0 w-full h-full z-0 block"></canvas>
@@ -191,7 +195,7 @@
                     2 PLAYERS (MOTION VS KEYS)
                 </button>
                 <button id="btnOpenHelp" class="arcade-btn bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2 px-3 rounded border border-slate-600 text-[10px] uppercase">
-                    📱 最佳手機橫放建議 & 指引
+                    📱 手機橫放操作指引
                 </button>
             </div>
         </div>
@@ -209,7 +213,7 @@
                 <div class="bg-slate-900 p-2.5 rounded border border-blue-500/50">
                     <p class="text-blue-400 font-bold mb-1">🥋 動作招式：</p>
                     <p>• <span class="text-yellow-300">出拳 / 踢腿</span>：伸展手臂或抬腿</p>
-                    <p>• <span class="text-yellow-300">雙手極速向前推</span>：波動拳</p>
+                    <p>• <span class="text-yellow-300">雙手向前推</span>：波動拳（面向哪邊就向哪邊發射）</p>
                     <p>• <span class="text-red-400 font-bold">單手高舉</span>：昇龍拳</p>
                 </div>
             </div>
@@ -251,6 +255,31 @@
 
     <!-- Game Engine & MediaPipe AI Logic -->
     <script>
+        // --- 自動適應螢幕大小縮放（確保完整顯示整個遊戲畫面） ---
+        function resizeGame() {
+            const wrapper = document.getElementById('gameWrapper');
+            const toolbar = document.getElementById('toolbar');
+            
+            const windowWidth = window.innerWidth;
+            const windowHeight = window.innerHeight - toolbar.offsetHeight - 10;
+            
+            const targetAspect = 16 / 9;
+            
+            let w = windowWidth;
+            let h = w / targetAspect;
+            
+            if (h > windowHeight) {
+                h = windowHeight;
+                w = h * targetAspect;
+            }
+            
+            wrapper.style.width = `${w}px`;
+            wrapper.style.height = `${h}px`;
+        }
+
+        window.addEventListener('resize', resizeGame);
+        window.addEventListener('load', resizeGame);
+
         class SoundEngine {
             constructor() {
                 this.ctx = null;
@@ -396,15 +425,13 @@
         };
 
         const motionInputs = {
-            left: false,
-            right: false,
             crouch: false,
             jump: false,
             punch: false,
             kick: false,
             special: false,
             shoryuken: false,
-            targetXRatio: 0.3 // 預設位置
+            targetXRatio: 0.3
         };
 
         let poseTracker = null;
@@ -458,7 +485,7 @@
             }
         }
 
-        // --- 根據鏡頭相對位置與預覽方向同步的精密判定 ---
+        // --- 根據鏡頭相對位置與同向出招判定 ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -485,8 +512,6 @@
             const midShoulderX = (leftShoulder.x + rightShoulder.x) / 2;
             const midHipY = (leftHip.y + rightHip.y) / 2;
 
-            motionInputs.left = false;
-            motionInputs.right = false;
             motionInputs.crouch = false;
             motionInputs.jump = false;
             motionInputs.punch = false;
@@ -494,16 +519,15 @@
             motionInputs.special = false;
             motionInputs.shoryuken = false;
 
-            // 1. 根據你在預覽畫面中的 X 座標（1:1 鏡像對應遊戲場地）
-            // 預覽加了 scale-x-[-1]，所以畫面左邊對應場地左方 (x=50)，右邊對應場地右方 (x=CANVAS_WIDTH-200)
+            // 1. 位置對應
             const previewXRatio = 1.0 - midShoulderX; 
             motionInputs.targetXRatio = Math.max(0.0, Math.min(1.0, previewXRatio));
 
-            // 2. 角色面向 (Facing) 完美對齊預覽畫面中你的方向
+            // 2. 面向同步（預覽中右邊對應右邊，左邊對應左邊）
             if (rightShoulder.z < leftShoulder.z - 0.05) {
-                player1.facing = 'right';
+                player1.facing = 'left'; 
             } else if (leftShoulder.z < rightShoulder.z - 0.05) {
-                player1.facing = 'left';
+                player1.facing = 'right';
             }
 
             // 3. 下蹲
@@ -522,14 +546,14 @@
                 }
             }
 
-            // 5. 嚴格化波動拳判定：必須雙手向前推且靠得很近，避免普通出拳誤觸
+            // 5. 波動拳（嚴格雙手向前推判定）
             const handDistance = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
             const isBothHandsForward = leftWrist.z < -0.15 && rightWrist.z < -0.15;
             if (!motionInputs.shoryuken && handDistance < 0.25 && isBothHandsForward) {
                 motionInputs.special = true;
             }
 
-            // 6. 普通出拳 (需手臂明顯伸展)
+            // 6. 普通出拳
             const leftArmExtension = Math.abs(leftWrist.x - leftShoulder.x);
             const rightArmExtension = Math.abs(rightWrist.x - rightShoulder.x);
             if (!motionInputs.special && !motionInputs.shoryuken && (leftArmExtension > sens.punch || rightArmExtension > sens.punch)) {
@@ -935,7 +959,6 @@
             if (gameState !== 'FIGHTING') return;
 
             if (controlMode === 'MOTION') {
-                // 將你在鏡頭中的 X 比例映射到遊戲場地座標 (留出左右邊界)
                 const targetGameX = 50 + motionInputs.targetXRatio * (CANVAS_WIDTH - 200);
                 player1.moveToTargetX(targetGameX);
 
@@ -982,7 +1005,6 @@
                 }
             }
 
-            // ⚡ 波動拳碰撞檢測
             fireballs.forEach(fb => {
                 if (!fb.active) return;
                 const target = fb.owner === 'p1' ? player2 : player1;
@@ -1199,17 +1221,7 @@
                     document.exitFullscreen();
                 }
             }
-        });
-
-        let currentZoomLevel = 1;
-        const zoomLevels = [1, 1.25, 1.5, 0.85];
-        const zoomLabels = ["ZOOM: 100%", "ZOOM: 125%", "ZOOM: 150%", "ZOOM: 85%"];
-        document.getElementById('btnZoom').addEventListener('click', () => {
-            currentZoomLevel = (currentZoomLevel + 1) % zoomLevels.length;
-            const scale = zoomLevels[currentZoomLevel];
-            document.getElementById('gameWrapper').style.transform = `scale(${scale})`;
-            document.getElementById('gameWrapper').style.transformOrigin = 'center center';
-            document.getElementById('btnZoom').textContent = zoomLabels[currentZoomLevel];
+            setTimeout(resizeGame, 300);
         });
 
         document.getElementById('btnOpenHelp').addEventListener('click', () => {
@@ -1228,6 +1240,7 @@
         });
 
         window.addEventListener('load', () => {
+            resizeGame();
             requestAnimationFrame(gameLoop);
         });
     </script>
