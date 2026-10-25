@@ -436,7 +436,6 @@
 
                 poseTracker.onResults(onPoseResults);
 
-                // 手機適配：優先嘗試前置相機與合適解像度
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: { width: { ideal: 640 }, height: { ideal: 360 }, facingMode: 'user' },
                     audio: false
@@ -465,7 +464,7 @@
             }
         }
 
-        // --- 動作與波動拳判定優化 ---
+        // --- 動作判定 ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -501,7 +500,6 @@
             motionInputs.special = false;
             motionInputs.shoryuken = false;
 
-            // 1. 移動控制
             const positionOffset = midShoulderX - 0.5;
             if (positionOffset < -sens.position) {
                 motionInputs.right = true; 
@@ -509,12 +507,10 @@
                 motionInputs.left = true;  
             }
 
-            // 2. 下蹲
             if (midHipY > 0.68) {
                 motionInputs.crouch = true;
             }
 
-            // 3. 昇龍拳 / 跳躍
             const isRightHandUpHigh = rightWrist.y < rightShoulder.y - 0.28;
             const isLeftHandUpHigh = leftWrist.y < leftShoulder.y - 0.28;
             if (isRightHandUpHigh || isLeftHandUpHigh) {
@@ -525,21 +521,19 @@
                 }
             }
 
-            // 4. 波動拳優化判定：雙手靠近且手腕明顯向前推出 (Z軸更靠前或手臂伸展)
+            // 波動拳判定：只要偵測到雙手合十或向前推，就直接觸發
             const handDistance = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
-            const isHandsForward = leftWrist.z < -0.1 || rightWrist.z < -0.1 || (Math.abs(leftWrist.x - leftShoulder.x) > 0.2 && Math.abs(rightWrist.x - rightShoulder.x) > 0.2);
-            if (!motionInputs.shoryuken && handDistance < 0.25 && isHandsForward) {
+            const isHandsForward = leftWrist.z < -0.05 || rightWrist.z < -0.05 || (Math.abs(leftWrist.x - leftShoulder.x) > 0.15 && Math.abs(rightWrist.x - rightShoulder.x) > 0.15);
+            if (!motionInputs.shoryuken && handDistance < 0.3 && isHandsForward) {
                 motionInputs.special = true;
             }
 
-            // 5. 普通出拳
             const leftArmExtension = Math.abs(leftWrist.x - leftShoulder.x);
             const rightArmExtension = Math.abs(rightWrist.x - rightShoulder.x);
             if (!motionInputs.special && !motionInputs.shoryuken && (leftArmExtension > sens.punch || rightArmExtension > sens.punch)) {
                 motionInputs.punch = true;
             }
 
-            // 6. 踢腿
             if (leftKnee.y < leftHip.y + 0.18 || rightKnee.y < rightHip.y + 0.18) {
                 motionInputs.kick = true;
             }
@@ -738,7 +732,7 @@
                     if (action < 0.3) this.punch();
                     else if (action < 0.5) this.kick();
                     else if (action < 0.75 && Math.abs(dist) < 120) this.shoryuken();
-                    else if (action < 0.9 && this.superMeter >= 35) this.hadouken();
+                    else if (action < 0.9) this.hadouken();
                     else if (action < 0.95) this.jump();
                 }
 
@@ -804,9 +798,9 @@
                 this.hitbox = { x: hx, y: this.y + 60, w: 60, h: 35, damage: 13, force: 8 };
             }
 
+            // ⚡ 解除能量條限制：只要系統偵測到就會直接發射波動拳
             hadouken() {
-                if (this.superMeter < 35 || this.isAttacking || this.hitStun > 0) return;
-                this.superMeter -= 35;
+                if (this.isAttacking || this.hitStun > 0) return;
                 this.isAttacking = true;
                 this.attackType = 'hadouken';
                 this.attackFrame = 25;
@@ -1190,7 +1184,6 @@
             document.getElementById('btnToggleControlMode').textContent = controlMode;
         });
 
-        // 📱 全螢幕切換功能
         document.getElementById('btnFullscreen').addEventListener('click', () => {
             if (!document.fullscreenElement) {
                 document.documentElement.requestFullscreen().catch(err => {});
@@ -1201,7 +1194,6 @@
             }
         });
 
-        // 🔍 畫面大小縮放切換 (100% -> 125% -> 150% -> 75% -> 100%)
         let currentZoomLevel = 1;
         const zoomLevels = [1, 1.25, 1.5, 0.85];
         const zoomLabels = ["ZOOM: 100%", "ZOOM: 125%", "ZOOM: 150%", "ZOOM: 85%"];
