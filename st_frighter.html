@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Street Fighter Motion Arcade - MediaPipe Pose Edition</title>
+    <title>Street Fighter Motion Arcade - Shoryuken & Lean-Forward Edition</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Google Fonts -->
@@ -59,6 +59,12 @@
             transform: scale(1.1);
             box-shadow: 0 0 12px #f59e0b;
         }
+        .action-badge.shoryuken {
+            background-color: #ef4444;
+            color: #fff;
+            transform: scale(1.2);
+            box-shadow: 0 0 15px #ef4444;
+        }
     </style>
 </head>
 <body class="w-screen min-h-screen flex flex-col items-center justify-center p-2 sm:p-4 text-white relative crt">
@@ -66,8 +72,8 @@
     <!-- Header Control Toolbar -->
     <div class="w-full max-w-6xl flex flex-wrap justify-between items-center mb-2 px-2 gap-2 text-xs">
         <div class="flex items-center gap-2">
-            <span class="text-yellow-400 font-bold hidden sm:inline">STREET FIGHTER: MOTION EDITION</span>
-            <span class="text-slate-400 text-[10px] bg-slate-800 px-2 py-1 rounded border border-slate-700">MediaPipe Pose AI</span>
+            <span class="text-yellow-400 font-bold hidden sm:inline">STREET FIGHTER: SHORYUKEN EDITION</span>
+            <span class="text-slate-400 text-[10px] bg-slate-800 px-2 py-1 rounded border border-slate-700">MediaPipe AI</span>
         </div>
         <div class="flex items-center gap-2">
             <button id="btnStartCam" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded text-[10px] font-bold border border-emerald-400 animate-pulse">
@@ -82,13 +88,13 @@
         </div>
     </div>
 
-    <!-- Main Game & Camera Display Container -->
+    <!-- Main Game Display Container -->
     <div class="relative w-full max-w-6xl aspect-[16/9] bg-slate-950 rounded-2xl overflow-hidden border-4 border-slate-700 shadow-2xl flex flex-col justify-between vignette">
         
         <!-- Game Canvas -->
         <canvas id="gameCanvas" class="absolute inset-0 w-full h-full z-0 block"></canvas>
 
-        <!-- Webcam Stream (Hidden Element for MediaPipe input) -->
+        <!-- Webcam Stream -->
         <video id="webcamVideo" class="hidden" playsinline muted autoplay></video>
 
         <!-- Skeleton Overlay Canvas (Top Right PIP) -->
@@ -99,15 +105,16 @@
             </div>
         </div>
 
-        <!-- Realtime Motion Trigger Status Bar (Bottom overlay) -->
+        <!-- Realtime Motion Trigger Status Bar -->
         <div id="motionTriggerBar" class="absolute bottom-3 left-4 z-20 flex flex-wrap gap-1.5 pointer-events-none">
             <span id="badge-left" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">◄ LEFT</span>
             <span id="badge-right" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">RIGHT ►</span>
+            <span id="badge-forward" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">LEAN FWD</span>
             <span id="badge-crouch" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">CROUCH</span>
-            <span id="badge-jump" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">JUMP</span>
             <span id="badge-punch" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">PUNCH</span>
             <span id="badge-kick" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">KICK</span>
             <span id="badge-special" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">HADOUKEN</span>
+            <span id="badge-shoryuken" class="action-badge bg-slate-900/80 text-slate-400 border border-slate-700 text-[9px] px-2 py-1 rounded">昇龍拳 SHORYUKEN</span>
         </div>
 
         <!-- HUD Layer -->
@@ -168,7 +175,7 @@
             <h1 class="title-font text-5xl sm:text-8xl tracking-wider text-yellow-400 italic font-black uppercase leading-none mb-1">
                 STREET FIGHTER
             </h1>
-            <p class="text-red-500 text-xs sm:text-sm tracking-widest mb-6 font-bold animate-pulse">MEDIAPIPE POSE MOTION EDITION</p>
+            <p class="text-red-500 text-xs sm:text-sm tracking-widest mb-6 font-bold animate-pulse">SHORYUKEN & MOTION EDITION</p>
 
             <div class="flex flex-col gap-3 w-full max-w-xs">
                 <button id="btnStartSingle" class="arcade-btn bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-6 rounded border-2 border-yellow-400 text-xs sm:text-sm uppercase tracking-wider">
@@ -189,17 +196,17 @@
             
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left text-[10px] sm:text-xs max-w-2xl mb-4 leading-relaxed">
                 <div class="bg-slate-900 p-3 rounded border border-red-500/50">
-                    <p class="text-red-400 font-bold mb-1">MOVEMENT:</p>
+                    <p class="text-red-400 font-bold mb-1">MOVEMENT & BODY:</p>
                     <p>• <span class="text-yellow-300">Lean Left / Right</span>: Move Character</p>
+                    <p>• <span class="text-yellow-300">Lean Forward (俯身)</span>: Move Forward Fast</p>
                     <p>• <span class="text-yellow-300">Squat / Lower Hips</span>: Crouch</p>
-                    <p>• <span class="text-yellow-300">Both Hands Up</span>: Jump</p>
-                    <p>• <span class="text-yellow-300">Lean Away</span>: Block Incoming Attacks</p>
                 </div>
                 <div class="bg-slate-900 p-3 rounded border border-blue-500/50">
-                    <p class="text-blue-400 font-bold mb-1">ATTACKS:</p>
+                    <p class="text-blue-400 font-bold mb-1">ATTACKS & SPECIALS:</p>
                     <p>• <span class="text-yellow-300">Punch Forward</span>: Light Punch</p>
                     <p>• <span class="text-yellow-300">Raise Knee / Kick</span>: Heavy Kick</p>
-                    <p>• <span class="text-yellow-300">Both Hands Forward</span>: Hadouken (Fireball)</p>
+                    <p>• <span class="text-yellow-300">Both Hands Forward</span>: Hadouken (波動拳)</p>
+                    <p>• <span class="text-red-400 font-bold">Raise Fist High & Jump</span>: Shoryuken (昇龍拳)</p>
                 </div>
             </div>
 
@@ -211,7 +218,6 @@
         <!-- Calibration & Sensitivity Adjuster Modal -->
         <div id="calibModal" class="absolute inset-0 z-40 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center hidden">
             <h2 class="text-amber-400 text-base sm:text-xl font-bold mb-2">MOTION SENSITIVITY CALIBRATION</h2>
-            <p class="text-[10px] text-slate-300 mb-4 max-w-md">Stand back so your upper body & knees are visible to the webcam.</p>
 
             <div class="flex flex-col gap-3 w-full max-w-sm text-left text-xs mb-6">
                 <div>
@@ -219,12 +225,8 @@
                     <input type="range" id="sensPunch" min="0.15" max="0.4" step="0.02" value="0.25" class="w-full">
                 </div>
                 <div>
-                    <label class="text-yellow-400 text-[10px] block mb-1">KICK KNEE SENSITIVITY</label>
-                    <input type="range" id="sensKick" min="0.1" max="0.3" step="0.02" value="0.18" class="w-full">
-                </div>
-                <div>
-                    <label class="text-yellow-400 text-[10px] block mb-1">LEAN MOVEMENT SENSITIVITY</label>
-                    <input type="range" id="sensLean" min="0.03" max="0.15" step="0.01" value="0.06" class="w-full">
+                    <label class="text-yellow-400 text-[10px] block mb-1">LEAN FORWARD SENSITIVITY (俯身敏感度)</label>
+                    <input type="range" id="sensForward" min="0.1" max="0.35" step="0.02" value="0.2" class="w-full">
                 </div>
             </div>
 
@@ -249,7 +251,7 @@
 
     <!-- Game Engine & MediaPipe AI Logic -->
     <script>
-        // --- SYNTHESIZER SOUND ENGINE (Web Audio API) ---
+        // --- SYNTHESIZER SOUND ENGINE ---
         class SoundEngine {
             constructor() {
                 this.ctx = null;
@@ -262,9 +264,7 @@
                     const AudioContext = window.AudioContext || window.webkitAudioContext;
                     this.ctx = new AudioContext();
                     this.initialized = true;
-                } catch (e) {
-                    console.warn("AudioContext init failed", e);
-                }
+                } catch (e) {}
             }
 
             playTone(freq, type, duration, startVol = 0.3, endVol = 0) {
@@ -312,6 +312,23 @@
                 } catch(e){}
             }
 
+            playShoryuken() {
+                if (!this.initialized) return;
+                try {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(800, this.ctx.currentTime + 0.45);
+                    gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.5);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + 0.5);
+                } catch(e){}
+            }
+
             playHit() {
                 if (!this.initialized) return;
                 try {
@@ -334,11 +351,6 @@
                 } catch(e){}
             }
 
-            playBlock() {
-                if (!this.initialized) return;
-                this.playTone(450, 'sine', 0.08, 0.3, 0.01);
-            }
-
             playKO() {
                 if (!this.initialized) return;
                 this.playTone(220, 'sawtooth', 0.5, 0.5, 0.01);
@@ -348,7 +360,7 @@
 
         const audio = new SoundEngine();
 
-        // --- CONSTANTS & CANVAS SETUP ---
+        // --- CONSTANTS & SETUP ---
         const CANVAS_WIDTH = 1024;
         const CANVAS_HEIGHT = 576;
         const GROUND_Y = 470;
@@ -364,7 +376,6 @@
         skeletonCanvas.width = 320;
         skeletonCanvas.height = 180;
 
-        // Game Configuration States
         let controlMode = 'MOTION'; 
         let gameMode = '1P'; 
         let gameState = 'MENU'; 
@@ -381,35 +392,36 @@
         let fireballs = [];
         const keys = {};
 
-        // Motion Sensitivity Parameters
         const sens = {
             punch: 0.25,
-            kick: 0.18,
+            forward: 0.2,
             lean: 0.06
         };
 
         const motionInputs = {
             left: false,
             right: false,
+            forward: false,
             crouch: false,
             jump: false,
             punch: false,
             kick: false,
-            special: false
+            special: false,
+            shoryuken: false
         };
 
-        // --- MEDIAPIPE POSE & WEBCAM STARTER ---
+        // --- MEDIAPIPE POSE & WEBCAM ---
         let poseTracker = null;
         let isCamActive = false;
         let stanceBaseX = 0.5;
+        let baseTorsoLength = null; // 用於計算身體前傾度
 
         async function initCameraAndPose() {
             const videoElement = document.getElementById('webcamVideo');
             const camStatus = document.getElementById('camStatus');
-            camStatus.textContent = "Cam: Requesting Permission...";
+            camStatus.textContent = "Cam: Connecting...";
 
             try {
-                // Initialize MediaPipe Pose Instance
                 poseTracker = new Pose({
                     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
                 });
@@ -424,7 +436,6 @@
 
                 poseTracker.onResults(onPoseResults);
 
-                // Request Native Web Cam Stream
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: { width: 640, height: 360, facingMode: 'user' },
                     audio: false
@@ -439,7 +450,6 @@
                 document.getElementById('btnStartCam').classList.remove('animate-pulse');
                 document.getElementById('btnStartCam').textContent = "📷 CAM READY";
 
-                // Continuous Frame Processing Loop
                 async function processFrame() {
                     if (isCamActive && videoElement.readyState >= 2) {
                         await poseTracker.send({ image: videoElement });
@@ -449,14 +459,12 @@
                 processFrame();
 
             } catch (err) {
-                console.error("Camera Init Error:", err);
-                camStatus.textContent = "Cam Error / Access Denied";
-                camStatus.className = "absolute bottom-1 left-1 bg-black/80 text-[8px] px-1.5 py-0.5 rounded text-red-400";
-                alert("無法開啟鏡頭！請確認：\n1. 瀏覽器已允許攝影機權限\n2. 網址為 https:// 或 localhost\n3. 鏡頭未被其他軟體占用");
+                console.error("Cam Error:", err);
+                camStatus.textContent = "Cam Access Denied";
             }
         }
 
-        // --- POSE RECOGNITION ALGORITHM ---
+        // --- POSE RECOGNITION WITH LEAN-FORWARD & SHORYUKEN ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -481,44 +489,67 @@
             const leftKnee = lm[25], rightKnee = lm[26];
 
             const midShoulderX = (leftShoulder.x + rightShoulder.x) / 2;
+            const midShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
             const midHipY = (leftHip.y + rightHip.y) / 2;
 
+            // 重置動作觸發標籤
             motionInputs.left = false;
             motionInputs.right = false;
+            motionInputs.forward = false;
             motionInputs.crouch = false;
             motionInputs.jump = false;
             motionInputs.punch = false;
             motionInputs.kick = false;
             motionInputs.special = false;
+            motionInputs.shoryuken = false;
 
-            // Lean Movement
+            // 1. 計算身體軀幹垂直長度 (用來判定俯身/前傾)
+            const torsoLength = Math.abs(midHipY - midShoulderY);
+            if (!baseTorsoLength || baseTorsoLength < 0.1) {
+                baseTorsoLength = torsoLength; // 初始化基準身高距離
+            }
+
+            // 2. 檢測身體前傾度 (Lean Forward / 俯身)
+            // 當前傾時，軀幹在 2D 投影中的垂直高度會明顯變短，或者肩膀顯著接近鏡頭 (z 軸變小)
+            if (torsoLength < baseTorsoLength * 0.75 || leftShoulder.z < -0.25) {
+                motionInputs.forward = true;
+            }
+
+            // 3. 左右平移 (鏡像校正：使用者向左傾斜 -> 角色向左動)
             const leanOffset = midShoulderX - stanceBaseX;
-            if (leanOffset > sens.lean) motionInputs.left = true;
-            else if (leanOffset < -sens.lean) motionInputs.right = true;
+            if (leanOffset < -sens.lean) motionInputs.left = true;
+            else if (leanOffset > sens.lean) motionInputs.right = true;
 
-            // Crouch
+            // 4. 下蹲 (Squat / Crouch)
             if (midHipY > 0.68) motionInputs.crouch = true;
 
-            // Jump
-            if (leftWrist.y < leftShoulder.y - 0.2 && rightWrist.y < rightShoulder.y - 0.2) {
+            // 5. 昇龍拳 (Shoryuken) 動作判定：單手高高舉過頭頂，且同時帶有向上跳躍或前衝姿態
+            const isRightHandUpHigh = rightWrist.y < rightShoulder.y - 0.28;
+            const isLeftHandUpHigh = leftWrist.y < leftShoulder.y - 0.28;
+            
+            if ((isRightHandUpHigh || isLeftHandUpHigh) && (motionInputs.forward || midShoulderY < 0.35)) {
+                motionInputs.shoryuken = true;
+            } 
+            // 6. 普通跳躍 (Both Hands Up)
+            else if (isRightHandUpHigh && isLeftHandUpHigh) {
                 motionInputs.jump = true;
             }
 
-            // Hadouken / Special Attack
+            // 7. 波動拳 (Hadouken) - 雙手合十前推
             const handDistance = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
-            if (handDistance < 0.12 && leftWrist.y < leftHip.y && rightWrist.y < rightHip.y) {
+            if (!motionInputs.shoryuken && handDistance < 0.12 && leftWrist.y < leftHip.y && rightWrist.y < rightHip.y) {
                 motionInputs.special = true;
             }
 
-            // Punch
+            // 8. 普通出拳 (Punch Forward)
             const leftArmExtension = Math.abs(leftWrist.x - leftShoulder.x);
             const rightArmExtension = Math.abs(rightWrist.x - rightShoulder.x);
-            if (!motionInputs.special && (leftArmExtension > sens.punch || rightArmExtension > sens.punch)) {
+            if (!motionInputs.special && !motionInputs.shoryuken && (leftArmExtension > sens.punch || rightArmExtension > sens.punch)) {
                 motionInputs.punch = true;
             }
 
-            // Kick
-            if (leftKnee.y < leftHip.y + sens.kick || rightKnee.y < rightHip.y + sens.kick) {
+            // 9. 踢腿 (Kick)
+            if (leftKnee.y < leftHip.y + 0.18 || rightKnee.y < rightHip.y + 0.18) {
                 motionInputs.kick = true;
             }
 
@@ -554,21 +585,22 @@
         }
 
         function updateTriggerBadges() {
-            const toggleBadge = (id, active) => {
+            const toggleBadge = (id, active, customClass = 'active') => {
                 const el = document.getElementById(id);
                 if (el) {
-                    if (active) el.classList.add('active');
-                    else el.classList.remove('active');
+                    if (active) el.classList.add(customClass);
+                    else el.classList.remove(customClass);
                 }
             };
 
             toggleBadge('badge-left', motionInputs.left);
             toggleBadge('badge-right', motionInputs.right);
+            toggleBadge('badge-forward', motionInputs.forward);
             toggleBadge('badge-crouch', motionInputs.crouch);
-            toggleBadge('badge-jump', motionInputs.jump);
             toggleBadge('badge-punch', motionInputs.punch);
             toggleBadge('badge-kick', motionInputs.kick);
             toggleBadge('badge-special', motionInputs.special);
+            toggleBadge('badge-shoryuken', motionInputs.shoryuken, 'shoryuken');
         }
 
         // --- PARTICLE & PROJECTILE SYSTEM ---
@@ -660,6 +692,11 @@
             }
 
             update(opponent) {
+                // 自動更新面向方向（永遠朝向對手）
+                if (opponent) {
+                    this.facing = opponent.x > this.x ? 'right' : 'left';
+                }
+
                 if (this.comboResetTimer > 0) {
                     this.comboResetTimer--;
                     if (this.comboResetTimer <= 0) {
@@ -686,6 +723,12 @@
 
                 if (this.isAttacking) {
                     this.attackFrame--;
+                    // 昇龍拳空中升騰動力
+                    if (this.attackType === 'shoryuken') {
+                        this.vy = -12;
+                        this.x += (this.facing === 'right' ? 5 : -5);
+                        createHitSparks(this.x + this.width/2, this.y + this.height, '#ef4444');
+                    }
                     if (this.attackFrame <= 0) {
                         this.isAttacking = false;
                         this.attackType = null;
@@ -700,12 +743,12 @@
 
             updateAI(opponent) {
                 const dist = opponent.x - this.x;
-                this.facing = dist > 0 ? 'right' : 'left';
 
                 if (Math.random() < 0.03 && this.isGrounded && !this.isAttacking) {
                     const action = Math.random();
-                    if (action < 0.4) this.punch();
-                    else if (action < 0.7) this.kick();
+                    if (action < 0.3) this.punch();
+                    else if (action < 0.5) this.kick();
+                    else if (action < 0.75 && Math.abs(dist) < 120) this.shoryuken();
                     else if (action < 0.9 && this.superMeter >= 35) this.hadouken();
                     else if (action < 0.95) this.jump();
                 }
@@ -724,10 +767,11 @@
                 if (this.hitStun > 0 || this.isAttacking) return;
                 if (dir === 'left') {
                     this.x -= this.speed;
-                    this.facing = 'left';
                 } else if (dir === 'right') {
                     this.x += this.speed;
-                    this.facing = 'right';
+                } else if (dir === 'forward') {
+                    // 身體前傾向敵人突進
+                    this.x += (this.facing === 'right' ? this.speed * 1.4 : -this.speed * 1.4);
                 }
                 if (this.x < 20) this.x = 20;
                 if (this.x > CANVAS_WIDTH - this.width - 20) this.x = CANVAS_WIDTH - this.width - 20;
@@ -766,7 +810,7 @@
                 audio.playPunch();
 
                 const hx = this.facing === 'right' ? this.x + this.width : this.x - 45;
-                this.hitbox = { x: hx, y: this.y + 30, w: 45, h: 30, damage: 7, force: 6 };
+                this.hitbox = { x: hx, y: this.y + 30, w: 45, h: 30, damage: 8, force: 6 };
             }
 
             kick() {
@@ -777,7 +821,7 @@
                 audio.playKick();
 
                 const hx = this.facing === 'right' ? this.x + this.width : this.x - 60;
-                this.hitbox = { x: hx, y: this.y + 60, w: 60, h: 35, damage: 12, force: 8 };
+                this.hitbox = { x: hx, y: this.y + 60, w: 60, h: 35, damage: 13, force: 8 };
             }
 
             hadouken() {
@@ -792,12 +836,25 @@
                 fireballs.push(new Fireball(hx, this.y + 40, this.facing, this === player1 ? 'p1' : 'p2'));
             }
 
+            // --- 新增：昇龍拳 (SHORYUKEN) ---
+            shoryuken() {
+                if (this.isAttacking || this.hitStun > 0) return;
+                this.isAttacking = true;
+                this.attackType = 'shoryuken';
+                this.attackFrame = 24;
+                this.isGrounded = false;
+                this.vy = -16; // 向上躍起
+                audio.playShoryuken();
+
+                const hx = this.facing === 'right' ? this.x + this.width - 20 : this.x - 50;
+                this.hitbox = { x: hx, y: this.y - 20, w: 70, h: 120, damage: 22, force: 15 };
+            }
+
             takeDamage(damage, force) {
                 if (this.isBlocking) {
                     damage = Math.floor(damage * 0.25);
                     this.health -= damage;
                     this.hitStun = 6;
-                    audio.playBlock();
                 } else {
                     this.health -= damage;
                     this.hitStun = 18;
@@ -838,6 +895,11 @@
                     } else if (this.attackType === 'kick') {
                         const kx = this.facing === 'right' ? this.x + this.width : this.x - 60;
                         ctx.fillRect(kx, this.y + 75, 60, 25);
+                    } else if (this.attackType === 'shoryuken') {
+                        // 昇龍拳向上高舉手臂動畫
+                        ctx.fillStyle = '#f59e0b';
+                        const sx = this.facing === 'right' ? this.x + this.width - 20 : this.x - 20;
+                        ctx.fillRect(sx, this.y - 35, 30, 70);
                     }
                 }
 
@@ -875,6 +937,7 @@
                 if (e.key.toLowerCase() === 'j') player1.punch();
                 if (e.key.toLowerCase() === 'k') player1.kick();
                 if (e.key.toLowerCase() === 'l') player1.hadouken();
+                if (e.key.toLowerCase() === 'i') player1.shoryuken();
 
                 if (gameMode === '2P') {
                     if (e.key === 'ArrowUp') player2.jump();
@@ -882,6 +945,7 @@
                     if (e.key === 'u') player2.punch();
                     if (e.key === 'i') player2.kick();
                     if (e.key === 'o') player2.hadouken();
+                    if (e.key === 'p') player2.shoryuken();
                 }
             }
         });
@@ -899,16 +963,18 @@
             if (controlMode === 'MOTION') {
                 if (motionInputs.left) player1.move('left');
                 if (motionInputs.right) player1.move('right');
+                if (motionInputs.forward) player1.move('forward');
                 if (motionInputs.jump) player1.jump();
+                
                 player1.crouch(motionInputs.crouch);
-                player1.block((motionInputs.left && player1.facing === 'left') || (motionInputs.right && player1.facing === 'right'));
-                if (motionInputs.punch) player1.punch();
-                if (motionInputs.kick) player1.kick();
-                if (motionInputs.special) player1.hadouken();
+
+                if (motionInputs.shoryuken) player1.shoryuken();
+                else if (motionInputs.special) player1.hadouken();
+                else if (motionInputs.punch) player1.punch();
+                else if (motionInputs.kick) player1.kick();
             } else {
                 if (keys['a']) player1.move('left');
                 if (keys['d']) player1.move('right');
-                player1.block((keys['a'] && player1.facing === 'left') || (keys['d'] && player1.facing === 'right'));
             }
 
             if (gameMode === '2P') {
@@ -922,7 +988,7 @@
             fireballs.forEach(fb => fb.update());
             fireballs = fireballs.filter(fb => fb.active);
 
-            // Collisions
+            // 攻擊判定 - P1
             if (player1.hitbox && player2.hitStun === 0) {
                 const hb = player1.hitbox;
                 if (hb.x < player2.x + player2.width && hb.x + hb.w > player2.x &&
@@ -933,6 +999,7 @@
                 }
             }
 
+            // 攻擊判定 - P2
             if (player2.hitbox && player1.hitStun === 0) {
                 const hb = player2.hitbox;
                 if (hb.x < player1.x + player1.width && hb.x + hb.w > player1.x &&
@@ -1117,7 +1184,6 @@
             document.getElementById('helpModal').classList.remove('hidden');
         });
         document.getElementById('btnCloseHelp').addEventListener('click', () => {
-            document.getElementById('helpModal').classList.hidden = true;
             document.getElementById('helpModal').classList.add('hidden');
         });
 
@@ -1126,8 +1192,7 @@
         });
         document.getElementById('btnSaveCalib').addEventListener('click', () => {
             sens.punch = parseFloat(document.getElementById('sensPunch').value);
-            sens.kick = parseFloat(document.getElementById('sensKick').value);
-            sens.lean = parseFloat(document.getElementById('sensLean').value);
+            sens.forward = parseFloat(document.getElementById('sensForward').value);
             document.getElementById('calibModal').classList.add('hidden');
         });
 
