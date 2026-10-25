@@ -209,18 +209,19 @@
 
         <!-- Motion Gesture Guide Modal -->
         <div id="helpModal" class="absolute inset-0 z-40 bg-slate-950/95 flex flex-col items-center justify-center p-4 text-center hidden">
-            <h2 class="text-yellow-400 text-sm sm:text-lg font-bold mb-2">📱 手機橫放與動作控制指南</h2>
+            <h2 class="text-yellow-400 text-sm sm:text-lg font-bold mb-2">📱 動作控制指南</h2>
             
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left text-[9px] sm:text-[11px] max-w-xl mb-3 leading-relaxed">
                 <div class="bg-slate-900 p-2.5 rounded border border-red-500/50">
-                    <p class="text-red-400 font-bold mb-1">📍 鏡像位置同步：</p>
-                    <p>• 預覽畫面在右邊，Ryu 就會站在右邊。</p>
-                    <p>• <span class="text-yellow-300">身體轉向哪邊</span>，Ryu 就面向哪邊。</p>
+                    <p class="text-red-400 font-bold mb-1">📍 位置與面向：</p>
+                    <p>• 預覽畫面在右邊，Ryu 就站在右邊。</p>
+                    <p>• <span class="text-yellow-300">身體面向哪邊</span>，Ryu 就面向哪邊。</p>
                 </div>
                 <div class="bg-slate-900 p-2.5 rounded border border-blue-500/50">
-                    <p class="text-blue-400 font-bold mb-1">🥋 必殺技與防禦：</p>
+                    <p class="text-blue-400 font-bold mb-1">🥋 招式動作：</p>
+                    <p>• <span class="text-yellow-300">跳躍</span>：雙手同時高舉過頭頂！</p>
+                    <p>• <span class="text-yellow-300">防禦</span>：雙手護臉（擋上盤不扣血）！</p>
                     <p>• <span class="text-yellow-300">波動拳</span>：雙手胸前合起 ➔ 向外推開！</p>
-                    <p>• <span class="text-red-400 font-bold">防禦</span>：雙手護臉（完美擋住上盤不扣血）！</p>
                 </div>
             </div>
 
@@ -236,7 +237,7 @@
             <div class="flex flex-col gap-2 w-full max-w-xs text-left text-xs mb-4">
                 <div>
                     <label class="text-yellow-400 text-[10px] block mb-1">ARM PUNCH SENSITIVITY</label>
-                    <input type="range" id="sensPunch" min="0.15" max="0.4" step="0.02" value="0.25" class="w-full">
+                    <input type="range" id="sensPunch" min="0.25" max="0.55" step="0.02" value="0.38" class="w-full">
                 </div>
             </div>
 
@@ -424,7 +425,7 @@
         const keys = {};
 
         let sens = {
-            punch: 0.25
+            punch: 0.38
         };
 
         const motionInputs = {
@@ -492,7 +493,7 @@
             }
         }
 
-        // --- 徹底修正：讓 Ryu 與預覽畫面 100% 同向、同位置 ---
+        // --- 完美對應：所見即所得（人站在預覽哪邊，Ryu 就站哪邊） ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -511,8 +512,13 @@
 
             if (controlMode !== 'MOTION') return;
 
-            // 🎯 關鍵修正：不進行 X 軸反轉，讓預覽中你在右邊，遊戲中 Ryu 就在右邊！
-            const lm = rawLm;
+            // 🎯 核心修正：將 X 軸翻轉 (1.0 - pt.x)，讓預覽畫面的左右與遊戲畫面完全 100% 同步！
+            const lm = rawLm.map(pt => ({
+                x: 1.0 - pt.x,
+                y: pt.y,
+                z: pt.z,
+                visibility: pt.visibility
+            }));
 
             const nose = lm[0];
             const leftShoulder = lm[11], rightShoulder = lm[12];
@@ -531,17 +537,17 @@
             motionInputs.shoryuken = false;
             motionInputs.block = false;
 
-            // 1. 位置同步：在未經反轉的座標下，midShoulderX 越小代表在畫面右側（鏡頭視角）
-            motionInputs.targetXRatio = Math.max(0.0, Math.min(1.0, 1.0 - midShoulderX));
+            // 1. 位置同步
+            motionInputs.targetXRatio = Math.max(0.0, Math.min(1.0, midShoulderX));
 
-            // 2. 面向同步：依據肩膀前後 Z 軸與左右相對位置判定面向
+            // 2. 面向同步
             if (rightShoulder.x < leftShoulder.x - 0.05) {
-                player1.facing = 'left';
-            } else if (leftShoulder.x < rightShoulder.x - 0.05) {
                 player1.facing = 'right';
+            } else if (leftShoulder.x < rightShoulder.x - 0.05) {
+                player1.facing = 'left';
             }
 
-            // 3. 雙手護臉防禦 (Guard / Block)
+            // 3. 雙手護臉防禦 (Guard)
             const handDist = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
             const isLeftHandAtFace = leftWrist.y < nose.y + 0.12 && Math.abs(leftWrist.x - nose.x) < 0.25;
             const isRightHandAtFace = rightWrist.y < nose.y + 0.12 && Math.abs(rightWrist.x - nose.x) < 0.25;
@@ -555,7 +561,7 @@
                 motionInputs.crouch = true;
             }
 
-            // 5. 昇龍拳 / 跳躍
+            // 5. 雙手高舉 = 跳躍 (Jump)；單手高舉 = 昇龍拳 (Shoryuken)
             const isRightArmUpHigh = rightWrist.y < nose.y - 0.08;
             const isLeftArmUpHigh = leftWrist.y < nose.y - 0.08;
 
@@ -567,7 +573,7 @@
                 }
             }
 
-            // 6. 波動拳：雙手合起（蓄力） ➔ 向外推開
+            // 6. 波動拳：雙手合起 ➔ 向外推開
             if (hadoukenChargeTimer > 0) hadoukenChargeTimer--;
 
             if (handDist < 0.20 && leftWrist.y > nose.y && rightWrist.y > nose.y) {
@@ -581,7 +587,7 @@
                 hadoukenState = 'IDLE';
             }
 
-            // 7. 出拳與踢腿
+            // 7. 出拳與踢腿（調高判定門檻，絕對不誤觸）
             const leftArmExtension = Math.hypot(leftWrist.x - leftShoulder.x, leftWrist.y - leftShoulder.y);
             const rightArmExtension = Math.hypot(rightWrist.x - rightShoulder.x, rightWrist.y - rightShoulder.y);
             const isKicking = leftKnee.y < leftHip.y + 0.18 || rightKnee.y < rightHip.y + 0.18;
