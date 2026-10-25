@@ -210,7 +210,7 @@
                 <div class="bg-slate-900 p-2.5 rounded border border-blue-500/50">
                     <p class="text-blue-400 font-bold mb-1">🥋 動作招式：</p>
                     <p>• <span class="text-yellow-300">站中間</span>：靜止不動</p>
-                    <p>• <span class="text-yellow-300">身體轉向/移向左或右</span>：決定面向與移動</p>
+                    <p>• <span class="text-yellow-300">預覽畫面中往左/右</span>：角色跟隨同方向移動與面向</p>
                     <p>• <span class="text-yellow-300">雙手向前推</span>：波動拳 (Hadouken)</p>
                     <p>• <span class="text-red-400 font-bold">單手高舉</span>：昇龍拳 (Shoryuken)</p>
                 </div>
@@ -464,7 +464,7 @@
             }
         }
 
-        // --- 前置鏡頭精準校準：左右移動與面向判定同步修正 ---
+        // --- 1:1 絕對對齊預覽畫面的控制邏輯 ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -500,19 +500,19 @@
             motionInputs.special = false;
             motionInputs.shoryuken = false;
 
-            // 1. 移動控制（前置鏡頭實體方向：不加負號，與您在鏡頭看到的左右完全一致）
-            const positionOffset = midShoulderX - 0.5;
-            if (positionOffset < -sens.position) {
+            // 1. 移動控制（套用負號，使實際移動與預覽視窗顯示完全一致）
+            const previewOffset = -(midShoulderX - 0.5);
+            if (previewOffset < -sens.position) {
                 motionInputs.left = true; 
-            } else if (positionOffset > sens.position) {
+            } else if (previewOffset > sens.position) {
                 motionInputs.right = true;  
             }
 
-            // 2. 角色面向 (Facing) 完美同步前置鏡頭預覽方向
+            // 2. 角色面向 (Facing) 完美對齊預覽畫面中您的方向
             if (rightShoulder.z < leftShoulder.z - 0.05) {
-                player1.facing = 'left';
-            } else if (leftShoulder.z < rightShoulder.z - 0.05) {
                 player1.facing = 'right';
+            } else if (leftShoulder.z < rightShoulder.z - 0.05) {
+                player1.facing = 'left';
             }
 
             // 3. 下蹲
