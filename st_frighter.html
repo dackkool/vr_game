@@ -113,7 +113,7 @@
         <!-- Webcam Stream -->
         <video id="webcamVideo" class="hidden" playsinline muted autoplay></video>
 
-        <!-- Skeleton Overlay Canvas (Top Right PIP - Mirror Display) -->
+        <!-- Skeleton Overlay Canvas (Top Right PIP) -->
         <div id="camFeedContainer" class="absolute top-12 right-2 z-20 w-36 sm:w-52 aspect-video bg-black/90 rounded-lg border-2 border-yellow-500/80 overflow-hidden shadow-xl transition-all">
             <canvas id="skeletonCanvas" class="w-full h-full object-cover scale-x-[-1]"></canvas>
             <div id="camStatus" class="absolute bottom-0.5 left-0.5 bg-black/80 text-[7px] px-1 py-0.5 rounded text-yellow-400">
@@ -213,14 +213,14 @@
             
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left text-[9px] sm:text-[11px] max-w-xl mb-3 leading-relaxed">
                 <div class="bg-slate-900 p-2.5 rounded border border-red-500/50">
-                    <p class="text-red-400 font-bold mb-1">📍 鏡像位置與面向：</p>
-                    <p>• 預覽視窗向右走，Ryu 就向右走。</p>
+                    <p class="text-red-400 font-bold mb-1">📍 鏡像位置同步：</p>
+                    <p>• 預覽畫面在右邊，Ryu 就會站在右邊。</p>
                     <p>• <span class="text-yellow-300">身體轉向哪邊</span>，Ryu 就面向哪邊。</p>
                 </div>
                 <div class="bg-slate-900 p-2.5 rounded border border-blue-500/50">
-                    <p class="text-blue-400 font-bold mb-1">🥋 必殺技簡化發動：</p>
-                    <p>• <span class="text-yellow-300">波動拳</span>：雙手在胸前靠攏（蓄力）➔ 迅速向兩側推開！</p>
-                    <p>• <span class="text-red-400 font-bold">昇龍拳</span>：任意單手高舉過頭頂！</p>
+                    <p class="text-blue-400 font-bold mb-1">🥋 必殺技與防禦：</p>
+                    <p>• <span class="text-yellow-300">波動拳</span>：雙手胸前合起 ➔ 向外推開！</p>
+                    <p>• <span class="text-red-400 font-bold">防禦</span>：雙手護臉（完美擋住上盤不扣血）！</p>
                 </div>
             </div>
 
@@ -492,7 +492,7 @@
             }
         }
 
-        // --- 修正鏡像座標與徹底提升出招體驗 ---
+        // --- 徹底修正：讓 Ryu 與預覽畫面 100% 同向、同位置 ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -511,14 +511,8 @@
 
             if (controlMode !== 'MOTION') return;
 
-            // 🎯 核心修復：全面將 MediaPipe 的 Raw Landmark 進行鏡像翻轉（X 軸翻轉: 1 - x）
-            // 這樣預覽畫面的右邊就完美等於遊戲畫面的右邊！
-            const lm = rawLm.map(pt => ({
-                x: 1.0 - pt.x,
-                y: pt.y,
-                z: pt.z,
-                visibility: pt.visibility
-            }));
+            // 🎯 關鍵修正：不進行 X 軸反轉，讓預覽中你在右邊，遊戲中 Ryu 就在右邊！
+            const lm = rawLm;
 
             const nose = lm[0];
             const leftShoulder = lm[11], rightShoulder = lm[12];
@@ -537,20 +531,20 @@
             motionInputs.shoryuken = false;
             motionInputs.block = false;
 
-            // 1. 位置對應：預覽畫面右邊，Ryu 就向右走！
-            motionInputs.targetXRatio = Math.max(0.0, Math.min(1.0, midShoulderX));
+            // 1. 位置同步：在未經反轉的座標下，midShoulderX 越小代表在畫面右側（鏡頭視角）
+            motionInputs.targetXRatio = Math.max(0.0, Math.min(1.0, 1.0 - midShoulderX));
 
-            // 2. 面向對應：在鏡像座標中，如果右肩在左肩左邊，代表側身面向右側
+            // 2. 面向同步：依據肩膀前後 Z 軸與左右相對位置判定面向
             if (rightShoulder.x < leftShoulder.x - 0.05) {
-                player1.facing = 'right';
-            } else if (leftShoulder.x < rightShoulder.x - 0.05) {
                 player1.facing = 'left';
+            } else if (leftShoulder.x < rightShoulder.x - 0.05) {
+                player1.facing = 'right';
             }
 
             // 3. 雙手護臉防禦 (Guard / Block)
             const handDist = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
-            const isLeftHandAtFace = leftWrist.y < nose.y + 0.12 && Math.abs(leftWrist.x - nose.x) < 0.22;
-            const isRightHandAtFace = rightWrist.y < nose.y + 0.12 && Math.abs(rightWrist.x - nose.x) < 0.22;
+            const isLeftHandAtFace = leftWrist.y < nose.y + 0.12 && Math.abs(leftWrist.x - nose.x) < 0.25;
+            const isRightHandAtFace = rightWrist.y < nose.y + 0.12 && Math.abs(rightWrist.x - nose.x) < 0.25;
 
             if (isLeftHandAtFace && isRightHandAtFace && handDist < 0.28) {
                 motionInputs.block = true;
@@ -561,26 +555,26 @@
                 motionInputs.crouch = true;
             }
 
-            // 5. 昇龍拳 (Shoryuken) 超順暢優化：任意單手高舉過鼻子/頭頂！
+            // 5. 昇龍拳 / 跳躍
             const isRightArmUpHigh = rightWrist.y < nose.y - 0.08;
             const isLeftArmUpHigh = leftWrist.y < nose.y - 0.08;
 
             if (!motionInputs.block) {
                 if (isRightArmUpHigh && isLeftArmUpHigh) {
-                    motionInputs.jump = true; // 雙手高舉跳躍
+                    motionInputs.jump = true;
                 } else if (isRightArmUpHigh || isLeftArmUpHigh) {
-                    motionInputs.shoryuken = true; // 單手高舉昇龍拳！
+                    motionInputs.shoryuken = true;
                 }
             }
 
-            // 6. 波動拳 (Hadouken) 超順暢優化：雙手胸前靠攏（蓄力）➔ 迅速向兩側推開！
+            // 6. 波動拳：雙手合起（蓄力） ➔ 向外推開
             if (hadoukenChargeTimer > 0) hadoukenChargeTimer--;
 
             if (handDist < 0.20 && leftWrist.y > nose.y && rightWrist.y > nose.y) {
                 hadoukenState = 'CHARGED';
-                hadoukenChargeTimer = 25; // 給予 25 幀緩衝時間推開
+                hadoukenChargeTimer = 25;
             } else if (hadoukenState === 'CHARGED' && hadoukenChargeTimer > 0 && handDist > 0.38) {
-                motionInputs.special = true; // 發射波動拳！
+                motionInputs.special = true;
                 hadoukenState = 'IDLE';
                 hadoukenChargeTimer = 0;
             } else if (hadoukenChargeTimer <= 0) {
