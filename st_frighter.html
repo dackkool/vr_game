@@ -197,7 +197,8 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left text-[10px] sm:text-xs max-w-2xl mb-4 leading-relaxed">
                 <div class="bg-slate-900 p-3 rounded border border-red-500/50">
                     <p class="text-red-400 font-bold mb-1">POSITION & MOVEMENT:</p>
-                    <p>• <span class="text-yellow-300">Stand on Left / Right of Camera</span>: Move Character Left / Right</p>
+                    <p>• <span class="text-yellow-300">Stand Center</span>: Stop / Idle (站中間不動)</p>
+                    <p>• <span class="text-yellow-300">Step Left / Right</span>: Move Character</p>
                     <p>• <span class="text-yellow-300">Squat / Lower Hips</span>: Crouch</p>
                 </div>
                 <div class="bg-slate-900 p-3 rounded border border-blue-500/50">
@@ -205,7 +206,7 @@
                     <p>• <span class="text-yellow-300">Punch Forward</span>: Light Punch</p>
                     <p>• <span class="text-yellow-300">Raise Knee / Kick</span>: Heavy Kick</p>
                     <p>• <span class="text-yellow-300">Both Hands Forward</span>: Hadouken (波動拳)</p>
-                    <p>• <span class="text-red-400 font-bold">Raise Fist High & Jump</span>: Shoryuken (昇龍拳)</p>
+                    <p>• <span class="text-red-400 font-bold">Raise Fist High</span>: Shoryuken (昇龍拳)</p>
                 </div>
             </div>
 
@@ -214,7 +215,7 @@
             </button>
         </div>
 
-        <!-- Calibration & Sensitivity Adjuster Modal -->
+        <!-- Calibration Modal -->
         <div id="calibModal" class="absolute inset-0 z-40 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center hidden">
             <h2 class="text-amber-400 text-base sm:text-xl font-bold mb-2">MOTION SENSITIVITY CALIBRATION</h2>
 
@@ -224,7 +225,7 @@
                     <input type="range" id="sensPunch" min="0.15" max="0.4" step="0.02" value="0.25" class="w-full">
                 </div>
                 <div>
-                    <label class="text-yellow-400 text-[10px] block mb-1">POSITION SENSITIVITY (站位判定)</label>
+                    <label class="text-yellow-400 text-[10px] block mb-1">DEADZONE (站立不動物理範圍)</label>
                     <input type="range" id="sensPosition" min="0.05" max="0.2" step="0.02" value="0.1" class="w-full">
                 </div>
             </div>
@@ -250,7 +251,6 @@
 
     <!-- Game Engine & MediaPipe AI Logic -->
     <script>
-        // --- SYNTHESIZER SOUND ENGINE ---
         class SoundEngine {
             constructor() {
                 this.ctx = null;
@@ -393,8 +393,7 @@
 
         const sens = {
             punch: 0.25,
-            position: 0.12, // 鏡頭相對位置判定靈敏度
-            lean: 0.08
+            position: 0.12 // 站立不動物理範圍 (Deadzone)
         };
 
         const motionInputs = {
@@ -408,10 +407,8 @@
             shoryuken: false
         };
 
-        // --- MEDIAPIPE POSE & WEBCAM ---
         let poseTracker = null;
         let isCamActive = false;
-        let centerReferenceX = 0.5; // 身體中心基準點
 
         async function initCameraAndPose() {
             const videoElement = document.getElementById('webcamVideo');
@@ -461,7 +458,7 @@
             }
         }
 
-        // --- 根據鏡頭相對位置與動作識別 ---
+        // --- 修正左右方向與站立不動物理機制 ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -488,7 +485,6 @@
             const midShoulderX = (leftShoulder.x + rightShoulder.x) / 2;
             const midHipY = (leftHip.y + rightHip.y) / 2;
 
-            // 重置動作
             motionInputs.left = false;
             motionInputs.right = false;
             motionInputs.crouch = false;
@@ -498,13 +494,13 @@
             motionInputs.special = false;
             motionInputs.shoryuken = false;
 
-            // 1. 根據你在鏡頭中的「相對左右位置」決定角色移動
-            // 由於視訊鏡頭是鏡像的：你站在鏡頭左側 (midShoulderX < 0.45) ➔ 角色往左走；你站在右側 (midShoulderX > 0.55) ➔ 角色往右走
+            // 1. 修正左右方向調轉與站立不動 (Deadzone 範圍 0.5 ± sens.position)
+            // 當你在中間（0.38 ~ 0.62 之間）時，完全不動 (motionInputs.left 和 right 都是 false)
             const positionOffset = midShoulderX - 0.5;
             if (positionOffset < -sens.position) {
-                motionInputs.left = true;
+                motionInputs.right = true; // 身體向左傾/站，角色向右行
             } else if (positionOffset > sens.position) {
-                motionInputs.right = true;
+                motionInputs.left = true;  // 身體向右傾/站，角色向左行
             }
 
             // 2. 下蹲
@@ -512,7 +508,7 @@
                 motionInputs.crouch = true;
             }
 
-            // 3. 昇龍拳 (單手高舉過頭)
+            // 3. 昇龍拳 / 跳躍
             const isRightHandUpHigh = rightWrist.y < rightShoulder.y - 0.28;
             const isLeftHandUpHigh = leftWrist.y < leftShoulder.y - 0.28;
             if (isRightHandUpHigh || isLeftHandUpHigh) {
@@ -523,13 +519,13 @@
                 }
             }
 
-            // 4. 波動拳 (雙手合十前推)
+            // 4. 波動拳
             const handDistance = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
             if (!motionInputs.shoryuken && handDistance < 0.12 && leftWrist.y < leftHip.y && rightWrist.y < rightHip.y) {
                 motionInputs.special = true;
             }
 
-            // 5. 出拳 (手臂向前伸出)
+            // 5. 出拳
             const leftArmExtension = Math.abs(leftWrist.x - leftShoulder.x);
             const rightArmExtension = Math.abs(rightWrist.x - rightShoulder.x);
             if (!motionInputs.special && !motionInputs.shoryuken && (leftArmExtension > sens.punch || rightArmExtension > sens.punch)) {
@@ -960,7 +956,6 @@
             fireballs.forEach(fb => fb.update());
             fireballs = fireballs.filter(fb => fb.active);
 
-            // 攻擊碰撞判定
             if (player1.hitbox && player2.hitStun === 0) {
                 const hb = player1.hitbox;
                 if (hb.x < player2.x + player2.width && hb.x + hb.w > player2.x &&
@@ -984,7 +979,7 @@
             fireballs.forEach(fb => {
                 const target = fb.owner === 'p1' ? player2 : player1;
                 if (fb.x < target.x + target.width && fb.x + fb.width > target.x &&
-                    fb.y < target.y + target.height && fb.y + fb.height > target.y) {
+                    fb.y < target.y + target.height && fb.y + hb.height > target.y) {
                     target.takeDamage(20, 10);
                     fb.active = false;
                     createHitSparks(target.x + target.width / 2, target.y + target.height / 2, fb.owner === 'p1' ? '#38bdf8' : '#dc2626');
