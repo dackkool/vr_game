@@ -464,7 +464,7 @@
             }
         }
 
-        // --- 動作與面向判定 ---
+        // --- 動作與鏡像修正、面向判定 ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -500,8 +500,8 @@
             motionInputs.special = false;
             motionInputs.shoryuken = false;
 
-            // 1. 移動控制（站中間則不動，向左/右走）
-            const positionOffset = midShoulderX - 0.5;
+            // 1. 移動控制（修復前置鏡頭左右倒轉：加上負號修正）
+            const positionOffset = -(midShoulderX - 0.5);
             if (positionOffset < -sens.position) {
                 motionInputs.right = true; 
             } else if (positionOffset > sens.position) {
@@ -635,6 +635,7 @@
                 this.active = true;
             }
             update() {
+                if (!this.active) return;
                 this.x += this.speed;
                 if (Math.random() < 0.6) {
                     particles.push(new Particle(
@@ -648,6 +649,7 @@
                 if (this.x < -100 || this.x > CANVAS_WIDTH + 100) this.active = false;
             }
             draw(ctx) {
+                if (!this.active) return;
                 ctx.save();
                 const color = this.owner === 'p1' ? '#0284c7' : '#dc2626';
                 ctx.fillStyle = color;
@@ -686,6 +688,7 @@
                 this.facing = facing; this.isAttacking = false;
                 this.isCrouching = false; this.isBlocking = false;
                 this.hitStun = 0; this.comboCount = 0;
+                this.hitbox = null;
             }
 
             update(opponent) {
@@ -988,10 +991,11 @@
                 }
             }
 
-            // ⚡ 修正碰撞檢測 Bug：將 hb.height 改為 fb.height
+            // ⚡ 絕對安全防護的波動拳碰撞檢測（防止任何當機）
             fireballs.forEach(fb => {
+                if (!fb.active) return;
                 const target = fb.owner === 'p1' ? player2 : player1;
-                if (fb.x < target.x + target.width && fb.x + fb.width > target.x &&
+                if (target && fb.x < target.x + target.width && fb.x + fb.width > target.x &&
                     fb.y < target.y + target.height && fb.y + fb.height > target.y) {
                     target.takeDamage(20, 10);
                     fb.active = false;
