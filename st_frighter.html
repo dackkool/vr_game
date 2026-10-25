@@ -202,17 +202,15 @@
             
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left text-[9px] sm:text-[11px] max-w-xl mb-3 leading-relaxed">
                 <div class="bg-slate-900 p-2.5 rounded border border-red-500/50">
-                    <p class="text-red-400 font-bold mb-1">📱 手機最佳體驗：</p>
-                    <p>• 請將手機<span class="text-yellow-300">橫放 (Landscape)</span> 並固定。</p>
-                    <p>• 點擊上方 <span class="text-purple-400">FULL</span> 按鈕進入全螢幕。</p>
-                    <p>• 使用 <span class="text-teal-400">ZOOM</span> 按鈕調整畫面大小。</p>
+                    <p class="text-red-400 font-bold mb-1">📱 位置跟隨控制：</p>
+                    <p>• 在鏡頭前<span class="text-yellow-300">左右移動位置</span>，Ryu 就會自動走到對應的 X 座標。</p>
+                    <p>• <span class="text-yellow-300">身體轉向</span>決定 Ryu 面向。</p>
                 </div>
                 <div class="bg-slate-900 p-2.5 rounded border border-blue-500/50">
                     <p class="text-blue-400 font-bold mb-1">🥋 動作招式：</p>
-                    <p>• <span class="text-yellow-300">站中間</span>：靜止不動</p>
-                    <p>• <span class="text-yellow-300">預覽畫面中往左/右</span>：角色跟隨同方向移動與面向</p>
-                    <p>• <span class="text-yellow-300">雙手向前推</span>：波動拳 (Hadouken)</p>
-                    <p>• <span class="text-red-400 font-bold">單手高舉</span>：昇龍拳 (Shoryuken)</p>
+                    <p>• <span class="text-yellow-300">出拳 / 踢腿</span>：伸展手臂或抬腿</p>
+                    <p>• <span class="text-yellow-300">雙手極速向前推</span>：波動拳</p>
+                    <p>• <span class="text-red-400 font-bold">單手高舉</span>：昇龍拳</p>
                 </div>
             </div>
 
@@ -228,11 +226,7 @@
             <div class="flex flex-col gap-2 w-full max-w-xs text-left text-xs mb-4">
                 <div>
                     <label class="text-yellow-400 text-[10px] block mb-1">ARM PUNCH SENSITIVITY</label>
-                    <input type="range" id="sensPunch" min="0.15" max="0.4" step="0.02" value="0.25" class="w-full">
-                </div>
-                <div>
-                    <label class="text-yellow-400 text-[10px] block mb-1">DEADZONE (站立不動物理範圍)</label>
-                    <input type="range" id="sensPosition" min="0.05" max="0.2" step="0.02" value="0.1" class="w-full">
+                    <input type="range" id="sensPunch" min="0.15" max="0.4" step="0.02" value="0.28" class="w-full">
                 </div>
             </div>
 
@@ -398,8 +392,7 @@
         const keys = {};
 
         const sens = {
-            punch: 0.25,
-            position: 0.12
+            punch: 0.28
         };
 
         const motionInputs = {
@@ -410,7 +403,8 @@
             punch: false,
             kick: false,
             special: false,
-            shoryuken: false
+            shoryuken: false,
+            targetXRatio: 0.3 // 預設位置
         };
 
         let poseTracker = null;
@@ -464,7 +458,7 @@
             }
         }
 
-        // --- 1:1 絕對對齊預覽畫面的控制邏輯 ---
+        // --- 根據鏡頭相對位置與預覽方向同步的精密判定 ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -500,15 +494,12 @@
             motionInputs.special = false;
             motionInputs.shoryuken = false;
 
-            // 1. 移動控制（套用負號，使實際移動與預覽視窗顯示完全一致）
-            const previewOffset = -(midShoulderX - 0.5);
-            if (previewOffset < -sens.position) {
-                motionInputs.left = true; 
-            } else if (previewOffset > sens.position) {
-                motionInputs.right = true;  
-            }
+            // 1. 根據你在預覽畫面中的 X 座標（1:1 鏡像對應遊戲場地）
+            // 預覽加了 scale-x-[-1]，所以畫面左邊對應場地左方 (x=50)，右邊對應場地右方 (x=CANVAS_WIDTH-200)
+            const previewXRatio = 1.0 - midShoulderX; 
+            motionInputs.targetXRatio = Math.max(0.0, Math.min(1.0, previewXRatio));
 
-            // 2. 角色面向 (Facing) 完美對齊預覽畫面中您的方向
+            // 2. 角色面向 (Facing) 完美對齊預覽畫面中你的方向
             if (rightShoulder.z < leftShoulder.z - 0.05) {
                 player1.facing = 'right';
             } else if (leftShoulder.z < rightShoulder.z - 0.05) {
@@ -531,14 +522,14 @@
                 }
             }
 
-            // 5. 波動拳
+            // 5. 嚴格化波動拳判定：必須雙手向前推且靠得很近，避免普通出拳誤觸
             const handDistance = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
-            const isHandsForward = leftWrist.z < -0.05 || rightWrist.z < -0.05 || (Math.abs(leftWrist.x - leftShoulder.x) > 0.15 && Math.abs(rightWrist.x - rightShoulder.x) > 0.15);
-            if (!motionInputs.shoryuken && handDistance < 0.3 && isHandsForward) {
+            const isBothHandsForward = leftWrist.z < -0.15 && rightWrist.z < -0.15;
+            if (!motionInputs.shoryuken && handDistance < 0.25 && isBothHandsForward) {
                 motionInputs.special = true;
             }
 
-            // 6. 普通出拳
+            // 6. 普通出拳 (需手臂明顯伸展)
             const leftArmExtension = Math.abs(leftWrist.x - leftShoulder.x);
             const rightArmExtension = Math.abs(rightWrist.x - rightShoulder.x);
             if (!motionInputs.special && !motionInputs.shoryuken && (leftArmExtension > sens.punch || rightArmExtension > sens.punch)) {
@@ -590,8 +581,8 @@
                 }
             };
 
-            toggleBadge('badge-left', motionInputs.left);
-            toggleBadge('badge-right', motionInputs.right);
+            toggleBadge('badge-left', motionInputs.targetXRatio < 0.35);
+            toggleBadge('badge-right', motionInputs.targetXRatio > 0.65);
             toggleBadge('badge-crouch', motionInputs.crouch);
             toggleBadge('badge-jump', motionInputs.jump);
             toggleBadge('badge-punch', motionInputs.punch);
@@ -758,12 +749,11 @@
                 if (this.x > CANVAS_WIDTH - this.width - 20) this.x = CANVAS_WIDTH - this.width - 20;
             }
 
-            move(dir) {
+            moveToTargetX(targetX) {
                 if (this.hitStun > 0 || this.isAttacking) return;
-                if (dir === 'left') {
-                    this.x -= this.speed;
-                } else if (dir === 'right') {
-                    this.x += this.speed;
+                const diff = targetX - this.x;
+                if (Math.abs(diff) > 4) {
+                    this.x += Math.sign(diff) * Math.min(Math.abs(diff), this.speed);
                 }
                 if (this.x < 20) this.x = 20;
                 if (this.x > CANVAS_WIDTH - this.width - 20) this.x = CANVAS_WIDTH - this.width - 20;
@@ -945,10 +935,11 @@
             if (gameState !== 'FIGHTING') return;
 
             if (controlMode === 'MOTION') {
-                if (motionInputs.left) player1.move('left');
-                if (motionInputs.right) player1.move('right');
+                // 將你在鏡頭中的 X 比例映射到遊戲場地座標 (留出左右邊界)
+                const targetGameX = 50 + motionInputs.targetXRatio * (CANVAS_WIDTH - 200);
+                player1.moveToTargetX(targetGameX);
+
                 if (motionInputs.jump) player1.jump();
-                
                 player1.crouch(motionInputs.crouch);
 
                 if (motionInputs.shoryuken) player1.shoryuken();
@@ -956,13 +947,13 @@
                 else if (motionInputs.punch) player1.punch();
                 else if (motionInputs.kick) player1.kick();
             } else {
-                if (keys['a']) player1.move('left');
-                if (keys['d']) player1.move('right');
+                if (keys['a']) player1.moveToTargetX(player1.x - 6);
+                if (keys['d']) player1.moveToTargetX(player1.x + 6);
             }
 
             if (gameMode === '2P') {
-                if (keys['arrowleft']) player2.move('left');
-                if (keys['arrowright']) player2.move('right');
+                if (keys['arrowleft']) player2.moveToTargetX(player2.x - 6);
+                if (keys['arrowright']) player2.moveToTargetX(player2.x + 6);
             }
 
             player1.update(player2);
@@ -991,7 +982,7 @@
                 }
             }
 
-            // ⚡ 絕對安全防護的波動拳碰撞檢測
+            // ⚡ 波動拳碰撞檢測
             fireballs.forEach(fb => {
                 if (!fb.active) return;
                 const target = fb.owner === 'p1' ? player2 : player1;
@@ -1233,7 +1224,6 @@
         });
         document.getElementById('btnSaveCalib').addEventListener('click', () => {
             sens.punch = parseFloat(document.getElementById('sensPunch').value);
-            sens.position = parseFloat(document.getElementById('sensPosition').value);
             document.getElementById('calibModal').classList.add('hidden');
         });
 
