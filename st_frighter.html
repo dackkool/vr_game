@@ -464,7 +464,7 @@
             }
         }
 
-        // --- 動作與鏡像修正、面向判定 ---
+        // --- 前置鏡頭精準校準：左右移動與面向判定同步修正 ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -500,19 +500,19 @@
             motionInputs.special = false;
             motionInputs.shoryuken = false;
 
-            // 1. 移動控制（修復前置鏡頭左右倒轉：加上負號修正）
-            const positionOffset = -(midShoulderX - 0.5);
+            // 1. 移動控制（前置鏡頭實體方向：不加負號，與您在鏡頭看到的左右完全一致）
+            const positionOffset = midShoulderX - 0.5;
             if (positionOffset < -sens.position) {
-                motionInputs.right = true; 
+                motionInputs.left = true; 
             } else if (positionOffset > sens.position) {
-                motionInputs.left = true;  
+                motionInputs.right = true;  
             }
 
-            // 2. 根據身體轉向決定角色面向 (Facing)
+            // 2. 角色面向 (Facing) 完美同步前置鏡頭預覽方向
             if (rightShoulder.z < leftShoulder.z - 0.05) {
-                player1.facing = 'right';
-            } else if (leftShoulder.z < rightShoulder.z - 0.05) {
                 player1.facing = 'left';
+            } else if (leftShoulder.z < rightShoulder.z - 0.05) {
+                player1.facing = 'right';
             }
 
             // 3. 下蹲
@@ -991,7 +991,7 @@
                 }
             }
 
-            // ⚡ 絕對安全防護的波動拳碰撞檢測（防止任何當機）
+            // ⚡ 絕對安全防護的波動拳碰撞檢測
             fireballs.forEach(fb => {
                 if (!fb.active) return;
                 const target = fb.owner === 'p1' ? player2 : player1;
