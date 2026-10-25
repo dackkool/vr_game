@@ -202,30 +202,36 @@
                     2 PLAYERS (MOTION VS KEYS)
                 </button>
                 <button id="btnOpenHelp" class="arcade-btn bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2 px-3 rounded border border-slate-600 text-[10px] uppercase">
-                    📱 操作指引
+                    📱 精準出招指引
                 </button>
             </div>
         </div>
 
         <!-- Motion Gesture Guide Modal -->
         <div id="helpModal" class="absolute inset-0 z-40 bg-slate-950/95 flex flex-col items-center justify-center p-4 text-center hidden">
-            <h2 class="text-yellow-400 text-sm sm:text-lg font-bold mb-2">📱 動作控制指南</h2>
+            <h2 class="text-yellow-400 text-sm sm:text-lg font-bold mb-2">📱 經典出招手勢指南</h2>
             
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left text-[9px] sm:text-[11px] max-w-xl mb-3 leading-relaxed">
-                <div class="bg-slate-900 p-2.5 rounded border border-red-500/50">
-                    <p class="text-red-400 font-bold mb-1">🛡️ 互斥防禦與位置：</p>
-                    <p>• 預覽畫面在右邊，Ryu 就站在右邊。</p>
-                    <p>• <span class="text-blue-400 font-bold">雙手護臉</span>：進入防禦狀態（鎖定其他攻擊指令，完全不扣血）。</p>
-                </div>
                 <div class="bg-slate-900 p-2.5 rounded border border-blue-500/50">
-                    <p class="text-blue-400 font-bold mb-1">🥋 獨立招式觸發：</p>
-                    <p>• <span class="text-yellow-300">波動拳</span>：雙手胸前合起 ➔ 向外推開！</p>
-                    <p>• <span class="text-red-400 font-bold">昇龍拳</span>：單手高舉過頭頂！</p>
+                    <p class="text-blue-400 font-bold mb-1">⚡ 波動拳 (Hadouken)：</p>
+                    <p>• <span class="text-yellow-300">雙手在胸口/腰間合起來</span>（蓄力） ➔ <span class="text-yellow-300">向外用力推出</span>！</p>
+                </div>
+                <div class="bg-slate-900 p-2.5 rounded border border-red-500/50">
+                    <p class="text-red-400 font-bold mb-1">🔥 昇龍拳 (Shoryuken)：</p>
+                    <p>• <span class="text-yellow-300">單手向上舉高過頭頂</span>，另一手留在腰間！</p>
+                </div>
+                <div class="bg-slate-900 p-2.5 rounded border border-emerald-500/50">
+                    <p class="text-emerald-400 font-bold mb-1">🛡️ 雙手防禦 (Guard)：</p>
+                    <p>• 雙手舉起護住臉部（完全不扣血，但防不了下段踢腿）。</p>
+                </div>
+                <div class="bg-slate-900 p-2.5 rounded border border-purple-500/50">
+                    <p class="text-purple-400 font-bold mb-1">🥋 普通攻擊：</p>
+                    <p>• 單手向前揮出（出拳）或抬腿（踢腿）。</p>
                 </div>
             </div>
 
             <button id="btnCloseHelp" class="arcade-btn bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-6 rounded text-xs">
-                關閉指南
+                關閉指引
             </button>
         </div>
 
@@ -236,7 +242,7 @@
             <div class="flex flex-col gap-2 w-full max-w-xs text-left text-xs mb-4">
                 <div>
                     <label class="text-yellow-400 text-[10px] block mb-1">ARM PUNCH SENSITIVITY</label>
-                    <input type="range" id="sensPunch" min="0.3" max="0.6" step="0.02" value="0.42" class="w-full">
+                    <input type="range" id="sensPunch" min="0.35" max="0.7" step="0.02" value="0.48" class="w-full">
                 </div>
             </div>
 
@@ -424,7 +430,7 @@
         const keys = {};
 
         let sens = {
-            punch: 0.42
+            punch: 0.48
         };
 
         const motionInputs = {
@@ -492,7 +498,7 @@
             }
         }
 
-        // --- 嚴格互斥與優先級指令解析 (防止主角發瘋失控) ---
+        // --- 🎯 完美的互斥動作解析引擎（解決誤觸與波動拳問題） ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -511,6 +517,7 @@
 
             if (controlMode !== 'MOTION') return;
 
+            // 鏡像翻轉同步左右
             const lm = rawLm.map(pt => ({
                 x: 1.0 - pt.x,
                 y: pt.y,
@@ -544,7 +551,7 @@
                 player1.facing = 'left';
             }
 
-            // 2. 優先級 1：防禦 (Guard) - 如果雙手護臉，直接強制鎖定所有攻擊指令！
+            // 2. 優先級 1：防禦 (Guard) ── 雙手手腕高於肩膀且靠攏護臉
             const handDist = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
             const isLeftHandAtFace = leftWrist.y < nose.y + 0.12 && Math.abs(leftWrist.x - nose.x) < 0.25;
             const isRightHandAtFace = rightWrist.y < nose.y + 0.12 && Math.abs(rightWrist.x - nose.x) < 0.25;
@@ -552,54 +559,62 @@
             if (isLeftHandAtFace && isRightHandAtFace && handDist < 0.28) {
                 motionInputs.block = true;
                 updateTriggerBadges();
-                return; // 直接中斷，防禦時絕對不會誤觸出拳！
+                return; // 防禦時鎖定其他指令
             }
 
-            // 3. 優先級 2：波動拳 (Hadouken) 偵測
+            // 3. 優先級 2：波動拳 (Hadouken) ── 雙手在胸口/腰間合起來（蓄力） ➔ 向外推出
             if (hadoukenChargeTimer > 0) hadoukenChargeTimer--;
 
-            if (handDist < 0.18 && leftWrist.y > nose.y && rightWrist.y > nose.y) {
+            // 判斷雙手是否在胸口或腰間合起 (Y 軸低於鼻子，且距離小於 0.22)
+            const isHandsNearChest = (leftWrist.y > nose.y && rightWrist.y > nose.y) && handDist < 0.22;
+
+            if (isHandsNearChest) {
                 hadoukenState = 'CHARGED';
-                hadoukenChargeTimer = 25;
-            } else if (hadoukenState === 'CHARGED' && hadoukenChargeTimer > 0 && handDist > 0.40) {
-                motionInputs.special = true;
+                hadoukenChargeTimer = 30; // 30幀內推出有效
+            } else if (hadoukenState === 'CHARGED' && hadoukenChargeTimer > 0 && handDist > 0.42) {
+                motionInputs.special = true; // 成功施展波動拳！
                 hadoukenState = 'IDLE';
                 hadoukenChargeTimer = 0;
                 updateTriggerBadges();
-                return; // 觸發波動拳，結束本幀判定
+                return;
             } else if (hadoukenChargeTimer <= 0) {
                 hadoukenState = 'IDLE';
             }
 
-            // 4. 優先級 3：昇龍拳 / 跳躍
-            const isRightArmUpHigh = rightWrist.y < nose.y - 0.08;
-            const isLeftArmUpHigh = leftWrist.y < nose.y - 0.08;
+            // 4. 優先級 3：昇龍拳 (Shoryuken) ── 單手舉高過頭頂，另一手留在腰間
+            const isRightUp = rightWrist.y < nose.y - 0.05;
+            const isLeftUp = leftWrist.y < nose.y - 0.05;
+            const isRightDown = rightWrist.y > nose.y + 0.1;
+            const isLeftDown = leftWrist.y > nose.y + 0.1;
 
-            if (isRightArmUpHigh && isLeftArmUpHigh) {
-                motionInputs.jump = true;
-                updateTriggerBadges();
-                return;
-            } else if (isRightArmUpHigh || isLeftArmUpHigh) {
+            if ((isRightUp && isLeftDown) || (isLeftUp && isRightDown)) {
                 motionInputs.shoryuken = true;
                 updateTriggerBadges();
                 return;
             }
 
-            // 5. 優先級 4：下蹲
+            // 5. 優先級 4：跳躍 ── 雙手同時高舉過頭頂
+            if (isRightUp && isLeftUp) {
+                motionInputs.jump = true;
+                updateTriggerBadges();
+                return;
+            }
+
+            // 6. 優先級 5：下蹲
             if (midHipY > 0.68) {
                 motionInputs.crouch = true;
                 updateTriggerBadges();
                 return;
             }
 
-            // 6. 優先級 5：普通攻擊（出拳 / 踢腿嚴格互斥）
-            const leftArmExtension = Math.hypot(leftWrist.x - leftShoulder.x, leftWrist.y - leftShoulder.y);
-            const rightArmExtension = Math.hypot(rightWrist.x - rightShoulder.x, rightWrist.y - rightShoulder.y);
+            // 7. 優先級 6：普通攻擊（出拳 / 踢腿嚴格互斥，提高門檻絕不誤觸）
+            const leftArmExt = Math.hypot(leftWrist.x - leftShoulder.x, leftWrist.y - leftShoulder.y);
+            const rightArmExt = Math.hypot(rightWrist.x - rightShoulder.x, rightWrist.y - rightShoulder.y);
             const isKicking = leftKnee.y < leftHip.y + 0.18 || rightKnee.y < rightHip.y + 0.18;
 
             if (isKicking) {
                 motionInputs.kick = true;
-            } else if (leftArmExtension > sens.punch || rightArmExtension > sens.punch) {
+            } else if (leftArmExt > sens.punch || rightArmExt > sens.punch) {
                 motionInputs.punch = true;
             }
 
@@ -1027,7 +1042,7 @@
                 if (keys['arrowright']) player2.moveToTargetX(player2.x + 6);
             }
 
-            // 🚫 角色防穿模碰撞推開機制
+            // 防穿模碰撞推開機制
             const dx = player2.x - player1.x;
             const minDist = 65;
             if (Math.abs(dx) < minDist) {
@@ -1089,7 +1104,7 @@
                 if (!fb.active) return;
                 const target = fb.owner === 'p1' ? player2 : player1;
                 if (target && fb.x < target.x + target.width && fb.x + fb.width > target.x &&
-                    fb.y < target.y + target.height && fb.y + fb.height > target.y) {
+                    fb.y < target.y + target.height && fb.y + hb.height > target.y) {
                     target.takeDamage(20, 10, false);
                     fb.active = false;
                     createHitSparks(target.x + target.width / 2, target.y + target.height / 2, fb.owner === 'p1' ? '#38bdf8' : '#dc2626');
@@ -1267,7 +1282,7 @@
                 if (p1Wins >= 2 || p2Wins >= 2) {
                     gameState = 'GAME_OVER';
                     document.getElementById('gameOverOverlay').classList.remove('hidden');
-                    document.getElementById('winnerText').textContent = `${winner === 'P1' ? 'PLAYER 1' : (gameMode === '1P' ? 'CPU' : 'PLAYER 2')} VICTORIOUS!`;
+                    document.getElementById('winnerText', `${winner === 'P1' ? 'PLAYER 1' : (gameMode === '1P' ? 'CPU' : 'PLAYER 2')} VICTORIOUS!`);
                 } else {
                     roundCount++;
                     startRound();
