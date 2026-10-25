@@ -202,31 +202,39 @@
                     2 PLAYERS (MOTION VS KEYS)
                 </button>
                 <button id="btnOpenHelp" class="arcade-btn bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2 px-3 rounded border border-slate-600 text-[10px] uppercase">
-                    📱 精準出招指引
+                    📱 黃金出招指引
                 </button>
             </div>
         </div>
 
         <!-- Motion Gesture Guide Modal -->
         <div id="helpModal" class="absolute inset-0 z-40 bg-slate-950/95 flex flex-col items-center justify-center p-4 text-center hidden">
-            <h2 class="text-yellow-400 text-sm sm:text-lg font-bold mb-2">📱 經典出招手勢指南</h2>
+            <h2 class="text-yellow-400 text-sm sm:text-lg font-bold mb-2">📱 黃金精準操作對應表</h2>
             
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left text-[9px] sm:text-[11px] max-w-xl mb-3 leading-relaxed">
-                <div class="bg-slate-900 p-2.5 rounded border border-blue-500/50">
-                    <p class="text-blue-400 font-bold mb-1">⚡ 波動拳 (Hadouken)：</p>
-                    <p>• <span class="text-yellow-300">雙手在胸口/腰間合起來</span>（蓄力） ➔ <span class="text-yellow-300">向外用力推出</span>！</p>
+                <div class="bg-slate-900 p-2.5 rounded border border-slate-700">
+                    <p class="text-slate-300 font-bold">• 雙手放下：</p><p class="text-slate-400">站立不動（跟隨您的位置移動）</p>
                 </div>
-                <div class="bg-slate-900 p-2.5 rounded border border-red-500/50">
-                    <p class="text-red-400 font-bold mb-1">🔥 昇龍拳 (Shoryuken)：</p>
-                    <p>• <span class="text-yellow-300">單手向上舉高過頭頂</span>，另一手留在腰間！</p>
+                <div class="bg-slate-900 p-2.5 rounded border border-blue-500/50">
+                    <p class="text-blue-400 font-bold">• 單手向前伸出：</p><p class="text-slate-300">出拳 (Punch)</p>
                 </div>
                 <div class="bg-slate-900 p-2.5 rounded border border-emerald-500/50">
-                    <p class="text-emerald-400 font-bold mb-1">🛡️ 雙手防禦 (Guard)：</p>
-                    <p>• 雙手舉起護住臉部（完全不扣血，但防不了下段踢腿）。</p>
+                    <p class="text-emerald-400 font-bold">• 單腳向前伸出：</p><p class="text-slate-300">出腳 (Kick)</p>
+                </div>
+                <div class="bg-slate-900 p-2.5 rounded border border-yellow-500/50">
+                    <p class="text-yellow-400 font-bold">• 雙手向前推出：</p><p class="text-slate-300">波動拳 (Hadouken)</p>
+                </div>
+                <div class="bg-slate-900 p-2.5 rounded border border-red-500/50">
+                    <p class="text-red-400 font-bold">• 單手舉起、另一手在腰間：</p><p class="text-slate-300">昇龍拳 (Shoryuken)</p>
                 </div>
                 <div class="bg-slate-900 p-2.5 rounded border border-purple-500/50">
-                    <p class="text-purple-400 font-bold mb-1">🥋 普通攻擊：</p>
-                    <p>• 單手向前揮出（出拳）或抬腿（踢腿）。</p>
+                    <p class="text-purple-400 font-bold">• 蹲下 (樽下)：</p><p class="text-slate-300">蹲下姿勢</p>
+                </div>
+                <div class="bg-slate-900 p-2.5 rounded border border-cyan-500/50">
+                    <p class="text-cyan-400 font-bold">• 單/雙手護頭：</p><p class="text-slate-300">防禦擋攻擊（不扣血）</p>
+                </div>
+                <div class="bg-slate-900 p-2.5 rounded border border-amber-500/50">
+                    <p class="text-amber-400 font-bold">• 跳高：</p><p class="text-slate-300">跳躍 (Jump)</p>
                 </div>
             </div>
 
@@ -242,7 +250,7 @@
             <div class="flex flex-col gap-2 w-full max-w-xs text-left text-xs mb-4">
                 <div>
                     <label class="text-yellow-400 text-[10px] block mb-1">ARM PUNCH SENSITIVITY</label>
-                    <input type="range" id="sensPunch" min="0.35" max="0.7" step="0.02" value="0.48" class="w-full">
+                    <input type="range" id="sensPunch" min="0.3" max="0.7" step="0.02" value="0.45" class="w-full">
                 </div>
             </div>
 
@@ -430,7 +438,7 @@
         const keys = {};
 
         let sens = {
-            punch: 0.48
+            punch: 0.45
         };
 
         const motionInputs = {
@@ -498,7 +506,7 @@
             }
         }
 
-        // --- 🎯 完美的互斥動作解析引擎（解決誤觸與波動拳問題） ---
+        // --- 🎯 嚴格對應您的黃金操作清單引擎 ---
         function onPoseResults(results) {
             sCtx.save();
             sCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
@@ -530,6 +538,7 @@
             const leftWrist = lm[15], rightWrist = lm[16];
             const leftHip = lm[23], rightHip = lm[24];
             const leftKnee = lm[25], rightKnee = lm[26];
+            const leftAnkle = lm[27], rightAnkle = lm[28];
 
             const midShoulderX = (leftShoulder.x + rightShoulder.x) / 2;
             const midHipY = (leftHip.y + rightHip.y) / 2;
@@ -543,7 +552,7 @@
             motionInputs.shoryuken = false;
             motionInputs.block = false;
 
-            // 1. 位置與面向同步
+            // 1. 其餘時間跟隨您的位置來行
             motionInputs.targetXRatio = Math.max(0.0, Math.min(1.0, midShoulderX));
             if (rightShoulder.x < leftShoulder.x - 0.05) {
                 player1.facing = 'right';
@@ -551,28 +560,26 @@
                 player1.facing = 'left';
             }
 
-            // 2. 優先級 1：防禦 (Guard) ── 雙手手腕高於肩膀且靠攏護臉
             const handDist = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
-            const isLeftHandAtFace = leftWrist.y < nose.y + 0.12 && Math.abs(leftWrist.x - nose.x) < 0.25;
-            const isRightHandAtFace = rightWrist.y < nose.y + 0.12 && Math.abs(rightWrist.x - nose.x) < 0.25;
 
-            if (isLeftHandAtFace && isRightHandAtFace && handDist < 0.28) {
+            // 2. 單或雙手護頭 = 擋 (Guard)
+            const isLeftGuard = leftWrist.y < nose.y + 0.15 && Math.abs(leftWrist.x - nose.x) < 0.25;
+            const isRightGuard = rightWrist.y < nose.y + 0.15 && Math.abs(rightWrist.x - nose.x) < 0.25;
+            if (isLeftGuard || isRightGuard) {
                 motionInputs.block = true;
                 updateTriggerBadges();
-                return; // 防禦時鎖定其他指令
+                return;
             }
 
-            // 3. 優先級 2：波動拳 (Hadouken) ── 雙手在胸口/腰間合起來（蓄力） ➔ 向外推出
+            // 3. 雙手向前推出 = 波動拳 (Hadouken)
             if (hadoukenChargeTimer > 0) hadoukenChargeTimer--;
-
-            // 判斷雙手是否在胸口或腰間合起 (Y 軸低於鼻子，且距離小於 0.22)
-            const isHandsNearChest = (leftWrist.y > nose.y && rightWrist.y > nose.y) && handDist < 0.22;
+            const isHandsNearChest = (leftWrist.y > nose.y && rightWrist.y > nose.y) && handDist < 0.25;
 
             if (isHandsNearChest) {
                 hadoukenState = 'CHARGED';
-                hadoukenChargeTimer = 30; // 30幀內推出有效
+                hadoukenChargeTimer = 30;
             } else if (hadoukenState === 'CHARGED' && hadoukenChargeTimer > 0 && handDist > 0.42) {
-                motionInputs.special = true; // 成功施展波動拳！
+                motionInputs.special = true;
                 hadoukenState = 'IDLE';
                 hadoukenChargeTimer = 0;
                 updateTriggerBadges();
@@ -581,41 +588,50 @@
                 hadoukenState = 'IDLE';
             }
 
-            // 4. 優先級 3：昇龍拳 (Shoryuken) ── 單手舉高過頭頂，另一手留在腰間
+            // 4. 單手舉起，另一手在腰間 = 昇龍拳 (Shoryuken)
             const isRightUp = rightWrist.y < nose.y - 0.05;
             const isLeftUp = leftWrist.y < nose.y - 0.05;
-            const isRightDown = rightWrist.y > nose.y + 0.1;
-            const isLeftDown = leftWrist.y > nose.y + 0.1;
+            const isRightWaist = rightWrist.y > leftHip.y - 0.1;
+            const isLeftWaist = leftWrist.y > leftHip.y - 0.1;
 
-            if ((isRightUp && isLeftDown) || (isLeftUp && isRightDown)) {
+            if ((isRightUp && isLeftWaist) || (isLeftUp && isRightWaist)) {
                 motionInputs.shoryuken = true;
                 updateTriggerBadges();
                 return;
             }
 
-            // 5. 優先級 4：跳躍 ── 雙手同時高舉過頭頂
-            if (isRightUp && isLeftUp) {
+            // 5. 跳高 = 跳 (Jump)
+            const isBothHandsUp = rightWrist.y < nose.y - 0.05 && leftWrist.y < nose.y - 0.05;
+            const isJumpingLegs = leftAnkle.y < leftHip.y + 0.2 || rightAnkle.y < rightHip.y + 0.2;
+            if (isBothHandsUp || isJumpingLegs) {
                 motionInputs.jump = true;
                 updateTriggerBadges();
                 return;
             }
 
-            // 6. 優先級 5：下蹲
+            // 6. 樽下 (蹲下)
             if (midHipY > 0.68) {
                 motionInputs.crouch = true;
                 updateTriggerBadges();
                 return;
             }
 
-            // 7. 優先級 6：普通攻擊（出拳 / 踢腿嚴格互斥，提高門檻絕不誤觸）
-            const leftArmExt = Math.hypot(leftWrist.x - leftShoulder.x, leftWrist.y - leftShoulder.y);
-            const rightArmExt = Math.hypot(rightWrist.x - rightShoulder.x, rightWrist.y - rightShoulder.y);
-            const isKicking = leftKnee.y < leftHip.y + 0.18 || rightKnee.y < rightHip.y + 0.18;
-
+            // 7. 單腳向前伸出 = 出腳 (Kick)
+            const isKicking = leftKnee.y < leftHip.y + 0.15 || rightKnee.y < rightHip.y + 0.15 || 
+                              Math.abs(leftAnkle.x - leftHip.x) > 0.25 || Math.abs(rightAnkle.x - rightHip.x) > 0.25;
             if (isKicking) {
                 motionInputs.kick = true;
-            } else if (leftArmExt > sens.punch || rightArmExt > sens.punch) {
+                updateTriggerBadges();
+                return;
+            }
+
+            // 8. 單手向前伸出 = 出拳 (Punch)
+            const leftArmExt = Math.hypot(leftWrist.x - leftShoulder.x, leftWrist.y - leftShoulder.y);
+            const rightArmExt = Math.hypot(rightWrist.x - rightShoulder.x, rightWrist.y - rightShoulder.y);
+            if (leftArmExt > sens.punch || rightArmExt > sens.punch) {
                 motionInputs.punch = true;
+                updateTriggerBadges();
+                return;
             }
 
             updateTriggerBadges();
@@ -1104,7 +1120,7 @@
                 if (!fb.active) return;
                 const target = fb.owner === 'p1' ? player2 : player1;
                 if (target && fb.x < target.x + target.width && fb.x + fb.width > target.x &&
-                    fb.y < target.y + target.height && fb.y + hb.height > target.y) {
+                    fb.y < target.y + target.height && fb.y + fb.height > target.y) {
                     target.takeDamage(20, 10, false);
                     fb.active = false;
                     createHitSparks(target.x + target.width / 2, target.y + target.height / 2, fb.owner === 'p1' ? '#38bdf8' : '#dc2626');
@@ -1282,7 +1298,7 @@
                 if (p1Wins >= 2 || p2Wins >= 2) {
                     gameState = 'GAME_OVER';
                     document.getElementById('gameOverOverlay').classList.remove('hidden');
-                    document.getElementById('winnerText', `${winner === 'P1' ? 'PLAYER 1' : (gameMode === '1P' ? 'CPU' : 'PLAYER 2')} VICTORIOUS!`);
+                    document.getElementById('winnerText').textContent = `${winner === 'P1' ? 'PLAYER 1' : (gameMode === '1P' ? 'CPU' : 'PLAYER 2')} VICTORIOUS!`;
                 } else {
                     roundCount++;
                     startRound();
@@ -1309,35 +1325,4 @@
         });
 
         document.getElementById('btnFullscreen').addEventListener('click', () => {
-            if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen().catch(err => {});
-            } else {
-                if (document.exitFullscreen) {
-                    document.exitFullscreen();
-                }
-            }
-            setTimeout(resizeGame, 300);
-        });
-
-        document.getElementById('btnOpenHelp').addEventListener('click', () => {
-            document.getElementById('helpModal').classList.remove('hidden');
-        });
-        document.getElementById('btnCloseHelp').addEventListener('click', () => {
-            document.getElementById('helpModal').classList.add('hidden');
-        });
-
-        document.getElementById('btnOpenCalib').addEventListener('click', () => {
-            document.getElementById('calibModal').classList.remove('hidden');
-        });
-        document.getElementById('btnSaveCalib').addEventListener('click', () => {
-            sens.punch = parseFloat(document.getElementById('sensPunch').value);
-            document.getElementById('calibModal').classList.add('hidden');
-        });
-
-        window.addEventListener('load', () => {
-            resizeGame();
-            requestAnimationFrame(gameLoop);
-        });
-    </script>
-</body>
-</html>
+            if (!document
