@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Street Fighter: 12 Fighters Arcade Edition</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- MediaPipe Pose & Camera Utils -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Noto+Sans+TC:wght@700;900&display=swap');
+        
+        * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #05050d; font-family: 'Noto Sans TC', sans-serif; }
+        .font-arcade { font-family: 'Press Start 2P', monospace; }
+
+        #gameWrapper {
+            position: relative; width: 100%; height: 100%; max-width: 1280px; max-height: 720px;
+            margin: 0 auto; display: flex; justify-content: center; align-items: center; background: #000;
+            box-shadow: 0 0 50px rgba(255, 0, 85, 0.2);
+        }
+
+        canvas#gameCanvas { width: 100%; height: 100%; object-fit: contain; background: #0a0a16; display: block; }
+
+        .neon-red { text-shadow: 0 0 5px #ff0055, 0 0 10px #ff0055; }
+        .neon-yellow { text-shadow: 0 0 5px #ffcc00, 0 0 10px #ffcc00; }
+        .neon-cyan { text-shadow: 0 0 5px #00f0ff, 0 0 10px #00f0ff; }
+
+        .scanlines {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.3) 50%);
+            background-size: 100% 4px; z-index: 10; pointer-events: none;
+        }
+
+        #webcamVideo { display: none; transform: scaleX(-1); }
+
+        .shake { animation: shakeAnim 0.25s cubic-bezier(.36,.07,.19,.97) both; }
+        @keyframes shakeAnim {
+            10%, 90% { transform: translate3d(-3px, 0, 0); }
+            20%, 80% { transform: translate3d(5px, -3px, 0); }
+            30%, 50%, 70% { transform: translate3d(-6px, 4px, 0); }
+            40%, 60% { transform: translate3d(6px, -2px, 0); }
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen bg-slate-950 text-white overflow-hidden">
+
+    <div id="gameWrapper" class="relative overflow-hidden border border-slate-800">
+        <div class="scanlines"></div>
+        <video id="webcamVideo" playsinline></video>
+        <canvas id="gameCanvas" width="960" height="540"></canvas>
+
+        <!-- Top Header Navigation -->
+        <div class="absolute top-3 left-3 right-3 z-20 flex justify-between items-center pointer-events-auto">
+            <div class="flex items-center space-x-2 bg-slate-900/90 border border-yellow-500/40 px-3 py-1.5 rounded shadow-lg backdrop-blur-md">
+                <span class="font-arcade text-xs text-yellow-400 tracking-wider" id="stageTitle">STAGE 1: VS RYU</span>
+            </div>
+
+            <div class="flex items-center space-x-2">
+                <button id="btnToggleCam" onclick="toggleCamera()" class="bg-slate-800/90 hover:bg-slate-700 text-emerald-400 text-xs px-3 py-1.5 rounded border border-emerald-500/30 flex items-center space-x-1.5 shadow">
+                    <i class="fa-solid fa-camera"></i>
+                    <span id="camBtnText" class="font-arcade text-[10px]">📷 CAM</span>
+                </button>
+                <button id="btnToggleInput" onclick="toggleInputMode()" class="bg-indigo-900/90 hover:bg-indigo-800 text-indigo-200 text-xs px-3 py-1.5 rounded border border-indigo-400/30 flex items-center space-x-1.5 shadow">
+                    <i class="fa-solid fa-gamepad"></i>
+                    <span id="inputBtnText" class="font-arcade text-[10px]">MOTION</span>
+                </button>
+                <button onclick="toggleFullScreen()" class="bg-purple-900/90 text-purple-200 text-xs px-3 py-1.5 rounded border border-purple-400/30 shadow">
+                    <i class="fa-solid fa-expand"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- PIP WebCam Skeleton Tracker -->
+        <div id="pipContainer" class="absolute bottom-3 right-3 z-20 w-36 h-28 bg-slate-900/85 border-2 border-emerald-500/50 rounded overflow-hidden hidden shadow-2xl">
+            <canvas id="pipCanvas" class="w-full h-full object-cover transform -scale-x-100"></canvas>
+            <div class="absolute bottom-0 left-0 right-0 bg-black/80 text-[8px] text-emerald-400 text-center py-0.5 font-mono">AI TRACKER</div>
+        </div>
+
+        <!-- Gesture Feedback Badges -->
+        <div id="gestureBadges" class="absolute bottom-3 left-3 z-20 flex flex-wrap gap-1.5 max-w-xs pointer-events-none">
+            <span id="badgeGuard" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800/80 text-slate-500 border border-slate-700">GUARD / 防禦</span>
+            <span id="badgePunch" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800/80 text-slate-500 border border-slate-700">PUNCH / 出拳</span>
+            <span id="badgeKick" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800/80 text-slate-500 border border-slate-700">KICK / 出腳</span>
+            <span id="badgeCharge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800/80 text-slate-500 border border-slate-700">CHARGE / 聚氣</span>
+            <span id="badgeHadouken" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800/80 text-slate-500 border border-slate-700">HADOUKEN / 波動</span>
+            <span id="badgeShoryuken" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800/80 text-slate-500 border border-slate-700">SHORYU / 昇龍</span>
+        </div>
+
+        <!-- Main Opening Menu Overlay -->
+        <div id="menuOverlay" class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md">
+            <div class="text-center px-4 max-w-xl">
+                <h1 class="text-3xl md:text-5xl font-black italic text-yellow-400 neon-yellow mb-2 font-arcade">STREET FIGHTER</h1>
+                <h2 class="text-sm md:text-xl font-bold text-red-500 neon-red mb-6 tracking-widest">12位主角過關斬將模式 (Arcade Mode)</h2>
+                <button onclick="openCharSelect()" class="px-8 py-4 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-arcade text-sm rounded-xl shadow-2xl border border-yellow-300">
+                    ▶ 選擇主角並開始過關
+                </button>
+            </div>
+        </div>
+
+        <!-- 12-Fighter Detailed Select Screen -->
+        <div id="charSelectOverlay" class="absolute inset-0 z-35 flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-md hidden p-4">
+            <h2 class="text-yellow-400 font-arcade text-lg mb-2 neon-yellow">SELECT YOUR FIGHTER</h2>
+            <p class="text-slate-400 text-xs mb-4">點擊選定您的代表主角，迎戰 12 位關卡對手！</p>
+            <div id="charGrid" class="grid grid-cols-4 gap-3 max-w-3xl w-full mb-6"></div>
+            <button onclick="startArcadeMode()" class="px-8 py-3 bg-red-600 hover:bg-red-500 text-white font-arcade text-xs rounded border border-yellow-300 shadow-xl">
+                出發！進入 Stage 1
+            </button>
+        </div>
+
+        <!-- Round Banner / Stage Clear Overlay -->
+        <div id="roundOverlay" class="absolute inset-0 z-25 flex flex-col items-center justify-center pointer-events-none hidden bg-black/40">
+            <span id="roundText" class="text-3xl md:text-6xl font-black italic text-yellow-400 font-arcade neon-yellow animate-bounce">ROUND 1</span>
+            <span id="subRoundText" class="text-sm md:text-lg text-cyan-300 font-arcade mt-2"></span>
+        </div>
+
+        <!-- Game Over / Victory Overlay -->
+        <div id="gameOverOverlay" class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/90 hidden">
+            <h2 id="winnerText" class="text-3xl md:text-5xl font-black italic text-yellow-400 font-arcade neon-yellow mb-6">VICTORY!</h2>
+            <button onclick="openCharSelect()" class="px-8 py-3 bg-red-600 hover:bg-red-500 text-white font-arcade text-xs rounded border border-yellow-300">
+                重新選角再戰
+            </button>
+        </div>
+    </div>
+
+    <!-- Game Engine Script -->
+    <script>
+        // --- 12 FIGHTERS DETAILED ROSTER & UNIQUE TRAITS ---
+        const ROSTER = {
+            ryu: { name: 'RYU', title: '激戰格鬥家', gi: '#f8fafc', hair: '#1e1b18', feature: '紅頭帶/白道袍', move: '波動拳' },
+            ken: { name: 'KEN', title: '烈火之拳', gi: '#dc2626', hair: '#facc15', feature: '金黃掃把頭/紅道袍', move: '昇龍拳' },
+            chunli: { name: 'CHUN-LI', title: '最強刑警', gi: '#2563eb', hair: '#0f172a', feature: '雙包子頭/藍旗袍', move: '百烈腳' },
+            guile: { name: 'GUILE', title: '美軍少校', gi: '#1e3a8a', hair: '#eab308', feature: '金黃立體掃把頭', move: '音速手刀' },
+            blanka: { name: 'BLANKA', title: '叢林野獸', gi: '#15803d', hair: '#f97316', feature: '綠色皮膚/橙色亂髮', move: '雷霆電擊' },
+            zangief: { name: 'ZANGIEF', title: '紅色巨熊', gi: '#b91c1c', hair: '#475569', feature: '巨大壯碩體格/紅短褲', move: '旋轉烏達' },
+            dhalsim: { name: 'DHALSIM', title: '瑜伽大師', gi: '#ca8a04', hair: '#52525b', feature: '光頭長鬍子/黃修行服', move: '瑜伽吐炎' },
+            ehonda: { name: 'E.HONDA', title: '橫綱力士', gi: '#0284c7', hair: '#18181b', feature: '超級肥佬/相撲髮髻', move: '百烈張手' },
+            vega: { name: 'VEGA', title: '西班牙美男', gi: '#9333ea', hair: '#facc15', feature: '銀面具/長爪/金髮', move: '爪擊飛刺' },
+            balrog: { name: 'BALROG', title: '狂暴拳王', gi: '#1e293b', hair: '#000000', feature: '黑色重磅拳手/短髮', move: '暴力衝拳' },
+            sagat: { name: 'SAGAT', title: '泰拳帝王', gi: '#d97706', hair: '#000000', feature: '眼罩/胸前傷疤/虎紋', move: '猛虎波動' },
+            mbison: { name: 'M.BISON', title: '影法師總帥', gi: '#312e81', hair: '#000000', feature: '軍官帽/精神紫焰', move: '精神壓殺' }
+        };
+
+        const charKeys = Object.keys(ROSTER);
+        let myCharKey = 'ryu';
+        let currentStageIndex = 0; // 0 到 11 (共12關)
+
+        function initCharGrid() {
+            const grid = document.getElementById('charGrid');
+            grid.innerHTML = '';
+            charKeys.forEach(key => {
+                const c = ROSTER[key];
+                const btn = document.createElement('button');
+                btn.className = `p-2.5 rounded-lg border text-left flex flex-col justify-between transition-all ${key === myCharKey ? 'bg-amber-500 text-black border-white scale-105 shadow-xl' : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'}`;
+                btn.innerHTML = `
+                    <div class="flex items-center space-x-2">
+                        <span class="w-5 h-5 rounded-full inline-block border border-white flex-shrink-0" style="background-color: ${c.gi}"></span>
+                        <span class="font-arcade text-[10px]">${c.name}</span>
+                    </div>
+                    <span class="text-[9px] mt-1 text-cyan-300 truncate">${c.feature}</span>
+                `;
+                btn.onclick = () => { myCharKey = key; initCharGrid(); };
+                grid.appendChild(btn);
+            });
+        }
+
+        function openCharSelect() {
+            sfx.init();
+            document.getElementById('menuOverlay').classList.add('hidden');
+            document.getElementById('gameOverOverlay').classList.add('hidden');
+            document.getElementById('charSelectOverlay').classList.remove('hidden');
+            initCharGrid();
+        }
+
+        function startArcadeMode() {
+            sfx.init();
+            currentStageIndex = 0;
+            document.getElementById('charSelectOverlay').classList.add('hidden');
+            startStage();
+        }
+
+        // --- WEBAUDIO SYNTHESIZER ---
+        class SoundFX {
+            constructor() { this.ctx = null; }
+            init() {
+                if (!this.ctx) {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    this.ctx = new AudioContext();
+                }
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+            }
+            playHit() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(180, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.15);
+                gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.15);
+            }
+            playSpecial() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(800, this.ctx.currentTime + 0.35);
+                gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.35);
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 0.35);
+            }
+            playKO() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(350, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(40, this.ctx.currentTime + 1.0);
+                gain.gain.setValueAtTime(0.6, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 1.0);
+                osc.connect(gain); gain.connect(this.ctx.destination);
+                osc.start(); osc.stop(this.ctx.currentTime + 1.0);
+            }
+        }
+        const sfx = new SoundFX();
+
+        const CANVAS_WIDTH = 960;
+        const CANVAS_HEIGHT = 540;
+        const GROUND_Y = 430;
+
+        const STATE_ROUND_INTRO = 'ROUND_INTRO';
+        const STATE_PLAYING = 'PLAYING';
+        const STATE_ROUND_OVER = 'ROUND_OVER';
+        const STATE_GAMEOVER = 'GAMEOVER';
+
+        let gameState = STATE_ROUND_INTRO;
+        let inputMode = 'MOTION';
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const pipCanvas = document.getElementById('pipCanvas');
+        const pipCtx = pipCanvas.getContext('2d');
+        const keys = {};
+
+        let roundTimer = 99;
+        let timerInterval = null;
+        let hadoukenChargeTime = 0;
+
+        function triggerScreenShake() {
+            const wrapper = document.getElementById('gameWrapper');
+            wrapper.classList.remove('shake');
+            void wrapper.offsetWidth;
+            wrapper.classList.add('shake');
+        }
+
+        // --- FIGHTER CLASS ---
+        class Fighter {
+            constructor(x, charKey, isCPU = false) {
+                this.x = x;
+                this.y = GROUND_Y;
+                this.vx = 0; this.vy = 0;
+                this.width = 60; this.height = 115;
+                this.charKey = charKey;
+                this.config = ROSTER[charKey];
+                this.name = this.config.name;
+                this.isCPU = isCPU;
+
+                this.hp = 100;
+                this.maxHp = 100;
+                this.isGrounded = true;
+                this.isCrouching = false;
+                this.isGuarding = false;
+                this.facingRight = (x < CANVAS_WIDTH / 2);
+
+                this.action = 'IDLE';
+                this.actionTimer = 0;
+                this.hitStun = 0;
+                this.animFrame = 0;
+                this.attackBox = { x: 0, y: 0, width: 0, height: 0, active: false };
+            }
+
+            reset(x, charKey) {
+                if (charKey) {
+                    this.charKey = charKey;
+                    this.config = ROSTER[charKey];
+                    this.name = this.config.name;
+                }
+                this.x = x; this.y = GROUND_Y;
+                this.vx = 0; this.vy = 0;
+                this.hp = 100;
+                this.isGrounded = true;
+                this.isCrouching = false;
+                this.isGuarding = false;
+                this.action = 'IDLE';
+                this.actionTimer = 0;
+                this.hitStun = 0;
+            }
+
+            update(enemy) {
+                this.animFrame++;
+
+                if (this.action === 'IDLE' || this.action === 'JUMP') {
+                    this.facingRight = (this.x < enemy.x);
+                }
+
+                if (this.hitStun > 0) {
+                    this.hitStun--;
+                    if (this.hitStun === 0) this.action = 'IDLE';
+                }
+
+                if (!this.isGrounded) {
+                    this.vy += 0.85;
+                    this.y += this.vy;
+                    if (this.y >= GROUND_Y) {
+                        this.y = GROUND_Y;
+                        this.vy = 0;
+                        this.isGrounded = true;
+                        if (this.action === 'JUMP' || this.action === 'SHORYU') this.action = 'IDLE';
+                    }
+                }
+
+                this.x += this.vx;
+                if (this.x < 50) this.x = 50;
+                if (this.x > CANVAS_WIDTH - 50) this.x = CANVAS_WIDTH - 50;
+
+                const dist = Math.abs(this.x - enemy.x);
+                if (dist < 60) {
+                    const overlap = 60 - dist;
+                    if (this.x < enemy.x) { this.x -= overlap / 2; enemy.x += overlap / 2; }
+                    else { this.x += overlap / 2; enemy.x -= overlap / 2; }
+                }
+
+                if (this.actionTimer > 0) {
+                    this.actionTimer--;
+                    if (this.actionTimer === 0 && this.hitStun === 0) {
+                        this.action = 'IDLE';
+                        this.attackBox.active = false;
+                    }
+                }
+
+                this.updateHitbox();
+
+                if (this.isCPU && gameState === STATE_PLAYING) {
+                    this.updateCPU(enemy);
+                }
+            }
+
+            updateHitbox() {
+                if (!this.attackBox.active) return;
+                let attackRange = 75;
+                this.attackBox.x = this.facingRight ? this.x + 20 : this.x - 20 - attackRange;
+                this.attackBox.y = this.y - 80;
+                this.attackBox.width = attackRange;
+                this.attackBox.height = 60;
+            }
+
+            punch() {
+                if (this.actionTimer > 0 || this.hitStun > 0) return;
+                this.action = 'PUNCH';
+                this.actionTimer = 16;
+                this.attackBox.active = true;
+                sfx.playHit();
+            }
+
+            kick() {
+                if (this.actionTimer > 0 || this.hitStun > 0) return;
+                this.action = 'KICK';
+                this.actionTimer = 20;
+                this.attackBox.active = true;
+                sfx.playHit();
+            }
+
+            hadouken() {
+                if (this.actionTimer > 0 || this.hitStun > 0) return;
+                this.action = 'HADOUKEN';
+                this.actionTimer = 26;
+                sfx.playSpecial();
+
+                const spawnX = this.facingRight ? this.x + 50 : this.x - 50;
+                fireballs.push(new Fireball(spawnX, this.y - 65, this.facingRight, this, '#00f0ff'));
+            }
+
+            shoryuken() {
+                if (this.actionTimer > 0 || this.hitStun > 0) return;
+                this.action = 'SHORYU';
+                this.actionTimer = 32;
+                this.vy = -15;
+                this.isGrounded = false;
+                this.attackBox.active = true;
+                sfx.playSpecial();
+                triggerScreenShake();
+                spawnSparks(this.x, this.y - 60, '#ffcc00');
+            }
+
+            jump() {
+                if (this.isGrounded && this.hitStun === 0) {
+                    this.vy = -14;
+                    this.isGrounded = false;
+                    this.action = 'JUMP';
+                }
+            }
+
+            takeDamage(amount) {
+                if (this.isGuarding) {
+                    this.hp -= amount * 0.05;
+                    spawnSparks(this.x, this.y - 60, '#00f0ff');
+                    return;
+                }
+                this.hp -= amount;
+                if (this.hp < 0) this.hp = 0;
+                this.hitStun = 22;
+                this.action = 'HIT';
+                spawnSparks(this.x, this.y - 60, '#ff0055');
+                sfx.playHit();
+            }
+
+            updateCPU(enemy) {
+                if (this.hitStun > 0) return;
+                const dx = enemy.x - this.x;
+                const absDx = Math.abs(dx);
+                if (absDx > 170) {
+                    this.vx = dx > 0 ? 2.8 : -2.8;
+                } else if (absDx < 70) {
+                    this.vx = 0;
+                    if (Math.random() < 0.05) this.punch();
+                    else if (Math.random() < 0.04) this.kick();
+                    else if (Math.random() < 0.03) this.shoryuken();
+                } else {
+                    this.vx = 0;
+                    if (Math.random() < 0.025) this.hadouken();
+                }
+            }
+
+            draw(ctx) {
+                ctx.save();
+                const breathY = Math.sin(this.animFrame * 0.1) * 2;
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+                ctx.beginPath();
+                ctx.ellipse(this.x, GROUND_Y + 4, 38, 12, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                let currentHeight = this.height;
+                let drawY = this.y - currentHeight + breathY;
+                if (this.isCrouching) {
+                    currentHeight = this.height * 0.65;
+                    drawY = this.y - currentHeight;
+                }
+
+                // 依據角色配置繪製外型特徵
+                ctx.fillStyle = this.config.gi;
+                ctx.fillRect(this.x - 24, drawY + 32, 48, currentHeight - 32);
+
+                // 腰帶
+                ctx.fillStyle = '#0f172a';
+                ctx.fillRect(this.x - 25, drawY + currentHeight - 45, 50, 8);
+
+                // 頭部皮膚
+                ctx.fillStyle = '#fbe3b5';
+                ctx.fillRect(this.x - 16, drawY, 32, 30);
+
+                // 頭髮與特色辨識
+                ctx.fillStyle = this.config.hair;
+                if (this.charKey === 'guiling' || this.charKey === 'guile') {
+                    // 古烈掃把頭
+                    ctx.fillRect(this.x - 20, drawY - 14, 40, 18);
+                } else if (this.charKey === 'ehonda') {
+                    // 本田肥佬髮髻
+                    ctx.fillRect(this.x - 16, drawY - 8, 32, 12);
+                } else {
+                    ctx.fillRect(this.x - 18, drawY - 6, 36, 14);
+                }
+
+                // 動作特效
+                if (this.action === 'HADOUKEN') {
+                    ctx.fillStyle = '#00f0ff';
+                    ctx.beginPath();
+                    ctx.arc(this.x + (this.facingRight ? 35 : -35), drawY + 35, 20, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                ctx.restore();
+            }
+        }
+
+        class Fireball {
+            constructor(x, y, facingRight, owner, color) {
+                this.x = x; this.y = y;
+                this.vx = facingRight ? 10 : -10;
+                this.owner = owner;
+                this.radius = 24;
+                this.active = true;
+                this.color = color;
+            }
+            update() {
+                this.x += this.vx;
+                if (this.x < -60 || this.x > CANVAS_WIDTH + 60) this.active = false;
+            }
+            draw(ctx) {
+                ctx.save();
+                const grad = ctx.createRadialGradient(this.x, this.y, 4, this.x, this.y, this.radius * 1.6);
+                grad.addColorStop(0, '#ffffff');
+                grad.addColorStop(0.5, this.color);
+                grad.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius * 1.6, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        let particles = [];
+        function spawnSparks(x, y, color) {
+            for (let i = 0; i < 14; i++) {
+                particles.push({
+                    x: x, y: y,
+                    vx: (Math.random() - 0.5) * 12,
+                    vy: (Math.random() - 0.5) * 12,
+                    size: Math.random() * 6 + 2,
+                    color: color, life: 18
+                });
+            }
+        }
+
+        const player1 = new Fighter(240, 'ryu');
+        const player2 = new Fighter(720, 'ken', true);
+        let fireballs = [];
+
+        // --- MEDIAPIPE MOTION ENGINE (RESTORED & OPTIMIZED) ---
+        let pose = null;
+        let camera = null;
+        let isCamActive = false;
+
+        function initMediaPipe() {
+            pose = new Pose({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}` });
+            pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+            pose.onResults(onPoseResults);
+
+            const videoElement = document.getElementById('webcamVideo');
+            camera = new Camera(videoElement, {
+                onFrame: async () => { if (isCamActive) await pose.send({ image: videoElement }); },
+                width: 640, height: 480
+            });
+        }
+
+        function toggleCamera() {
+            sfx.init();
+            const btnText = document.getElementById('camBtnText');
+            const pip = document.getElementById('pipContainer');
+            if (!isCamActive) {
+                if (!camera) initMediaPipe();
+                camera.start(); isCamActive = true;
+                btnText.textContent = "📷 ON";
+                pip.classList.remove('hidden');
+            } else {
+                if (camera) camera.stop();
+                isCamActive = false;
+                btnText.textContent = "📷 CAM";
+                pip.classList.add('hidden');
+            }
+        }
+
+        function toggleInputMode() {
+            sfx.init();
+            inputMode = inputMode === 'MOTION' ? 'KEYBOARD' : 'MOTION';
+            document.getElementById('inputBtnText').textContent = inputMode;
+        }
+
+        function onPoseResults(results) {
+            pipCtx.save();
+            pipCtx.clearRect(0, 0, pipCanvas.width, pipCanvas.height);
+            pipCtx.drawImage(results.image, 0, 0, pipCanvas.width, pipCanvas.height);
+            pipCtx.restore();
+
+            if (!results.poseLandmarks || gameState !== STATE_PLAYING || inputMode !== 'MOTION') return;
+
+            const lm = results.poseLandmarks;
+            const nose = lm[0], leftWrist = lm[15], rightWrist = lm[16];
+            const leftShoulder = lm[11], rightShoulder = lm[12];
+            const leftHip = lm[23], rightHip = lm[24];
+            const leftAnkle = lm[27], rightAnkle = lm[28];
+
+            // 左右移動追蹤
+            const hipCenterX = 1.0 - (leftHip.x + rightHip.x) / 2;
+            player1.x += (hipCenterX * CANVAS_WIDTH - player1.x) * 0.22;
+
+            resetBadges();
+
+            // 1. 防禦 (Guard): 雙手舉高護臉
+            if (leftWrist.y < nose.y + 0.15 && rightWrist.y < nose.y + 0.15) {
+                player1.isGuarding = true; highlightBadge('badgeGuard');
+            } else { player1.isGuarding = false; }
+
+            // 2. 波動拳 (Hadouken): 雙手靠近腰前聚氣推出
+            const handDist = Math.hypot(leftWrist.x - rightWrist.x, leftWrist.y - rightWrist.y);
+            const handsNearWaist = (leftWrist.y > leftShoulder.y && rightWrist.y > rightShoulder.y);
+            if (handDist < 0.20 && handsNearWaist) {
+                hadoukenChargeTime++;
+                highlightBadge('badgeCharge');
+                if (hadoukenChargeTime > 10) {
+                    player1.hadouken();
+                    highlightBadge('badgeHadouken');
+                    hadoukenChargeTime = 0;
+                }
+            } else { hadoukenChargeTime = Math.max(0, hadoukenChargeTime - 1); }
+
+            // 3. 昇龍拳 (Shoryuken): 單手高舉過頭
+            if (leftWrist.y < nose.y - 0.15 || rightWrist.y < nose.y - 0.15) {
+                player1.shoryuken();
+                highlightBadge('badgeShoryuken');
+            }
+
+            // 4. 普通拳 (Punch)
+            if (leftWrist.y < leftShoulder.y && handDist > 0.35) {
+                if (player1.action === 'IDLE') { player1.punch(); highlightBadge('badgePunch'); }
+            }
+            // 5. 普通腳 (Kick)
+            if (leftAnkle.y < leftHip.y + 0.25 || rightAnkle.y < rightHip.y + 0.25) {
+                if (player1.action === 'IDLE') { player1.kick(); highlightBadge('badgeKick'); }
+            }
+        }
+
+        function resetBadges() {
+            ['badgeGuard', 'badgePunch', 'badgeKick', 'badgeCharge', 'badgeHadouken', 'badgeShoryuken'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800/80 text-slate-500 border border-slate-700";
+            });
+        }
+
+        function highlightBadge(id) {
+            const el = document.getElementById(id);
+            if (el) el.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-slate-950 border border-amber-300 shadow-lg animate-pulse";
+        }
+
+        // --- KEYBOARD CONTROLS ---
+        window.addEventListener('keydown', (e) => {
+            sfx.init();
+            keys[e.key.toLowerCase()] = true;
+            if (gameState === STATE_PLAYING && inputMode === 'KEYBOARD') {
+                if (e.key.toLowerCase() === 'a') player1.vx = -4;
+                if (e.key.toLowerCase() === 'd') player1.vx = 4;
+                if (e.key.toLowerCase() === 'w') player1.jump();
+                if (e.key.toLowerCase() === 's') player1.isCrouching = true;
+                if (e.key.toLowerCase() === 'j') player1.punch();
+                if (e.key.toLowerCase() === 'k') player1.kick();
+                if (e.key.toLowerCase() === 'u') player1.hadouken();
+                if (e.key.toLowerCase() === 'i') player1.shoryuken();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+            if (inputMode === 'KEYBOARD') {
+                if (e.key.toLowerCase() === 'a' || e.key.toLowerCase() === 'd') player1.vx = 0;
+                if (e.key.toLowerCase() === 's') player1.isCrouching = false;
+            }
+        });
+
+        function drawHongKongStage(ctx) {
+            const skyGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+            skyGrad.addColorStop(0, '#020208'); skyGrad.addColorStop(1, '#1d0c2b');
+            ctx.fillStyle = skyGrad; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            ctx.fillStyle = '#12121a';
+            ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
+            ctx.fillStyle = '#eab308';
+            ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, 6);
+        }
+
+        function drawHUD(ctx) {
+            // P1 HP
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.85)'; ctx.fillRect(40, 25, 360, 24);
+            ctx.fillStyle = '#eab308'; ctx.fillRect(42, 27, (player1.hp / player1.maxHp) * 356, 20);
+
+            // P2 HP
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.85)'; ctx.fillRect(CANVAS_WIDTH - 400, 25, 360, 24);
+            ctx.fillStyle = '#ef4444'; ctx.fillRect(CANVAS_WIDTH - 40 - (player2.hp / player2.maxHp) * 356, 27, (player2.hp / player2.maxHp) * 356, 20);
+
+            ctx.font = '700 11px "Press Start 2P"';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(`${player1.name} (P1)`, 40, 18);
+            ctx.fillText(`Stage ${currentStageIndex + 1}: ${player2.name}`, CANVAS_WIDTH - 220, 18);
+        }
+
+        function gameLoop() {
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            drawHongKongStage(ctx);
+
+            if (gameState === STATE_PLAYING || gameState === STATE_ROUND_OVER) {
+                player1.update(player2);
+                player2.update(player1);
+
+                fireballs.forEach(fb => fb.update());
+                fireballs = fireballs.filter(fb => fb.active);
+
+                if (gameState === STATE_PLAYING) {
+                    fireballs.forEach(fb => {
+                        if (!fb.active) return;
+                        const target = fb.owner === player1 ? player2 : player1;
+                        if (Math.hypot(fb.x - target.x, fb.y - (target.y - 50)) < fb.radius + 32) {
+                            target.takeDamage(16);
+                            fb.active = false;
+                        }
+                    });
+                    checkMeleeHit(player1, player2);
+                    checkMeleeHit(player2, player1);
+                }
+
+                particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.life--; });
+                particles = particles.filter(p => p.life > 0);
+
+                player1.draw(ctx);
+                player2.draw(ctx);
+                fireballs.forEach(fb => fb.draw(ctx));
+                particles.forEach(p => { ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill(); });
+
+                drawHUD(ctx);
+
+                if (gameState === STATE_PLAYING && (player1.hp <= 0 || player2.hp <= 0)) {
+                    handleRoundEnd(player1.hp > 0 ? player1 : player2);
+                }
+            }
+            requestAnimationFrame(gameLoop);
+        }
+
+        function checkMeleeHit(attacker, defender) {
+            if (!attacker.attackBox.active) return;
+            const box = attacker.attackBox;
+            const defBox = { x: defender.x - 25, y: defender.y - defender.height, width: 50, height: defender.height };
+            if (box.x < defBox.x + defBox.width && box.x + box.width > defBox.x && box.y < defBox.y + defBox.height && box.y + box.height > defBox.y) {
+                defender.takeDamage(12);
+                attacker.attackBox.active = false;
+            }
+        }
+
+        function startStage() {
+            sfx.init();
+            const cpuKey = charKeys[currentStageIndex];
+
+            player1.reset(240, myCharKey);
+            player2.reset(720, cpuKey);
+            fireballs = [];
+            roundTimer = 99;
+
+            document.getElementById('stageTitle').textContent = `STAGE ${currentStageIndex + 1}: VS ${player2.name} (${player2.config.feature})`;
+
+            const overlay = document.getElementById('roundOverlay');
+            const roundText = document.getElementById('roundText');
+            const subText = document.getElementById('subRoundText');
+            overlay.classList.remove('hidden');
+            roundText.textContent = `STAGE ${currentStageIndex + 1}`;
+            subText.textContent = `對手: ${player2.name} - ${player2.config.feature}`;
+
+            setTimeout(() => {
+                roundText.textContent = "FIGHT!";
+                subText.textContent = "";
+                sfx.playHit();
+                setTimeout(() => {
+                    overlay.classList.add('hidden');
+                    gameState = STATE_PLAYING;
+                }, 800);
+            }, 1500);
+        }
+
+        function handleRoundEnd(winner) {
+            gameState = STATE_ROUND_OVER;
+            sfx.playKO();
+
+            const overlay = document.getElementById('roundOverlay');
+            const roundText = document.getElementById('roundText');
+            const subText = document.getElementById('subRoundText');
+            overlay.classList.remove('hidden');
+
+            if (winner === player1) {
+                currentStageIndex++;
+                if (currentStageIndex >= charKeys.length) {
+                    roundText.textContent = "ALL CLEAR!";
+                    subText.textContent = "恭喜您通關 12 位對手！";
+                    setTimeout(() => {
+                        document.getElementById('gameOverOverlay').classList.remove('hidden');
+                    }, 2000);
+                } else {
+                    roundText.textContent = "STAGE CLEAR!";
+                    subText.textContent = `下一位對手: ${ROSTER[charKeys[currentStageIndex]].name}`;
+                    setTimeout(() => {
+                        overlay.classList.add('hidden');
+                        startStage();
+                    }, 2500);
+                }
+            } else {
+                roundText.textContent = "YOU LOSE";
+                subText.textContent = "挑戰失敗";
+                setTimeout(() => {
+                    document.getElementById('gameOverOverlay').classList.remove('hidden');
+                }, 2000);
+            }
+        }
+
+        function toggleFullScreen() {
+            const elem = document.getElementById('gameWrapper');
+            if (!document.fullscreenElement) elem.requestFullscreen().catch(err => {});
+            else document.exitFullscreen();
+        }
+
+        window.onload = () => { requestAnimationFrame(gameLoop); };
+    </script>
+</body>
+</html>
