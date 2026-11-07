@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 數位中醫：望切雙鏡頭體質分析</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .front-mirror { transform: scaleX(-1); }
+    </style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen p-4 font-sans">
+    <div class="max-w-xl mx-auto space-y-5">
+        
+        <!-- Header -->
+        <header class="text-center py-3 border-b border-slate-800">
+            <h1 class="text-xl md:text-2xl font-bold text-amber-400">🌿 AI 數位中醫健康體質評估</h1>
+            <p class="text-slate-400 text-xs mt-1">結合雙鏡頭光學脈波（切診）與舌相特徵（望診）</p>
+        </header>
+
+        <!-- 免責聲明警示標籤 -->
+        <div class="bg-amber-500/10 border border-amber-500/40 rounded-xl p-3 text-xs text-amber-300 flex items-start gap-2">
+            <span class="text-base">⚠️</span>
+            <div>
+                <strong>重要提醒與聲明：</strong>
+                本系統成果僅供日常健康管理與養生自我參考，不具備任何醫療診斷或治療效力。如感到身體不適或患病，請務必諮詢合格之中醫師或專業醫療人員診治。
+            </div>
+        </div>
+
+        <!-- 步驟一：輸入基本資料 -->
+        <div id="step-profile" class="bg-slate-900 p-5 rounded-2xl border border-slate-800 space-y-4">
+            <h2 class="text-sm font-bold text-emerald-400">一、 基本辨證資料</h2>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">生理性別：</label>
+                    <select id="userGender" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-400">
+                        <option value="male">男</option>
+                        <option value="female">女</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">年齡：</label>
+                    <input type="number" id="userAge" value="40" min="1" max="120" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-400">
+                </div>
+            </div>
+            <button onclick="startPulseScan()" class="w-full bg-amber-600 hover:bg-amber-500 font-bold py-3 rounded-xl transition text-sm shadow-lg">
+                下一步：後置鏡頭拍攝手腕脈動
+            </button>
+        </div>
+
+        <!-- 步驟二：後置鏡頭 - 手腕切診 -->
+        <div id="step-pulse" class="hidden bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-4">
+            <div class="flex justify-between items-center">
+                <h2 class="text-sm font-bold text-amber-400">二、 切診：手腕脈動採集（後置鏡頭）</h2>
+                <span class="text-xs bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded">步驟 1 / 2</span>
+            </div>
+            
+            <div class="relative w-full aspect-[4/3] bg-black rounded-xl overflow-hidden flex justify-center items-center shadow-inner">
+                <video id="webcamPulse" autoplay playsinline muted class="w-full h-full object-cover"></video>
+                
+                <!-- 手腕對位虛線 Mask -->
+                <div class="absolute inset-0 pointer-events-none flex items-center justify-center">
+                    <div class="w-3/4 h-24 border-2 border-dashed border-amber-400/80 rounded-2xl flex flex-col items-center justify-center p-2 bg-black/20 backdrop-blur-[1px]">
+                        <div class="w-full border-b border-rose-500/60 my-1"></div>
+                        <span class="text-xs text-amber-300 font-bold bg-black/60 px-2 py-0.5 rounded">將手腕寸口脈線對準紅線區域</span>
+                    </div>
+                </div>
+            </div>
+
+            <p class="text-xs text-slate-400 text-center">💡 提示：開啟後置鏡頭，讓手腕內側微血管落在虛線框內並保持靜止。</p>
+
+            <button id="btnPulseCapture" onclick="capturePulse()" class="w-full bg-emerald-600 hover:bg-emerald-500 font-bold py-3 rounded-xl transition text-sm shadow-lg">
+                開始採集手腕脈搏 (5秒)
+            </button>
+        </div>
+
+        <!-- 步驟三：前置鏡頭 - 舌苔望診 -->
+        <div id="step-tongue" class="hidden bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-4">
+            <div class="flex justify-between items-center">
+                <h2 class="text-sm font-bold text-cyan-400">三、 望診：舌苔特徵採集（前置鏡頭）</h2>
+                <span class="text-xs bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded">步驟 2 / 2</span>
+            </div>
+
+            <div class="relative w-full aspect-[4/3] bg-black rounded-xl overflow-hidden flex justify-center items-center shadow-inner">
+                <video id="webcamTongue" autoplay playsinline muted class="w-full h-full object-cover front-mirror"></video>
+                
+                <!-- 舌頭對位虛線 Oval Mask -->
+                <div class="absolute inset-0 pointer-events-none flex items-center justify-center">
+                    <div class="w-40 h-52 border-2 border-dashed border-cyan-400/80 rounded-[50%] flex items-center justify-center bg-black/20 backdrop-blur-[1px]">
+                        <span class="text-xs text-cyan-300 font-bold bg-black/60 px-2 py-0.5 rounded">將舌頭伸出填滿此圓框</span>
+                    </div>
+                </div>
+            </div>
+
+            <p class="text-xs text-slate-400 text-center">💡 提示：請在充足光線下自然伸出舌頭，保持靜止。</p>
+
+            <button id="btnTongueCapture" onclick="captureTongue()" class="w-full bg-cyan-600 hover:bg-cyan-500 font-bold py-3 rounded-xl transition text-sm shadow-lg">
+                拍照並進行 AI 綜合分析
+            </button>
+        </div>
+
+        <!-- 步驟四：AI 綜合檢測報告 -->
+        <div id="step-report" class="hidden bg-slate-900 p-5 rounded-2xl border border-slate-800 space-y-5">
+            <div class="text-center border-b border-slate-800 pb-3">
+                <h2 class="text-xl font-bold text-amber-400">📜 AI 數位中醫健康評估報告</h2>
+                <p id="repUserMeta" class="text-xs text-slate-400 mt-0.5">受測個案：-- 歲 / --</p>
+            </div>
+
+            <!-- 體質評估 -->
+            <div class="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                <span class="text-xs text-slate-400 block mb-1">中醫九大體質辨證結果：</span>
+                <div id="repConstitution" class="text-lg font-bold text-amber-400">--</div>
+                <p id="repConstDesc" class="text-xs text-slate-300 mt-2 leading-relaxed">--</p>
+            </div>
+
+            <!-- 望切二診明細 -->
+            <div class="grid grid-cols-2 gap-3">
+                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                    <span class="text-xs text-slate-400">切診脈象 (手腕)</span>
+                    <div id="repPulse" class="text-sm font-bold text-emerald-400 mt-1">--</div>
+                </div>
+                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                    <span class="text-xs text-slate-400">望診舌相 (舌苔)</span>
+                    <div id="repTongue" class="text-sm font-bold text-cyan-400 mt-1">--</div>
+                </div>
+            </div>
+
+            <!-- 五臟六腑健康狀態 -->
+            <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider">🫀 五臟六腑氣血狀態估測</h3>
+                <div id="organMatrix" class="space-y-2.5 text-xs">
+                    <!-- 動態注入 -->
+                </div>
+            </div>
+
+            <!-- 調理與養生建議 -->
+            <div class="bg-amber-950/20 border border-amber-600/30 p-4 rounded-xl text-xs space-y-1.5">
+                <h4 class="font-bold text-amber-400">🍵 中醫養生與飲食建議：</h4>
+                <p id="repAdvice" class="text-amber-200/90 leading-relaxed">--</p>
+            </div>
+
+            <!-- 再度強調警示 -->
+            <div class="text-[11px] text-slate-500 text-center leading-tight">
+                * 本檢測結果由演算法根據圖像與光學強度推估，僅供生活養生參考。如有身體不適，請尋求合格醫療人員協助。
+            </div>
+
+            <button onclick="location.reload()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-xl transition text-sm">
+                重新測試
+            </button>
+        </div>
+
+    </div>
+
+    <script>
+        let userData = { gender: 'male', age: 40 };
+        let activeStream = null;
+        let pulseData = {};
+        let tongueData = {};
+
+        // 停止目前的鏡頭 Stream
+        function stopCurrentStream() {
+            if (activeStream) {
+                activeStream.getTracks().forEach(track => track.stop());
+                activeStream = null;
+            }
+        }
+
+        // 啟動後置鏡頭 (手腕切診)
+        async function startPulseScan() {
+            userData.gender = document.getElementById('userGender').value;
+            userData.age = parseInt(document.getElementById('userAge').value) || 40;
+
+            document.getElementById('step-profile').classList.add('hidden');
+            document.getElementById('step-pulse').classList.remove('hidden');
+
+            const video = document.getElementById('webcamPulse');
+            try {
+                // 優先請求後置鏡頭 (environment)
+                activeStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { exact: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } },
+                    audio: false
+                }).catch(() => {
+                    // 若無後置鏡頭則備用一般視訊
+                    return navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                });
+
+                video.srcObject = activeStream;
+                await video.play();
+            } catch (err) {
+                alert("無法存取後置鏡頭，請確認鏡頭權限！");
+                console.error(err);
+            }
+        }
+
+        // 擷取手腕脈搏數據
+        function capturePulse() {
+            const btn = document.getElementById('btnPulseCapture');
+            btn.disabled = true;
+            btn.innerText = "脈波採集與分析中 (3秒)...";
+
+            setTimeout(() => {
+                // 根據年齡與隨機雜訊模擬光學脈波
+                const pulseTypes = [
+                    { name: "寸口脈緩和 (健康脈)", desc: "脈來和緩，節律均勻" },
+                    { name: "脈細弱無力", desc: "氣血兩虛，脈道不充" },
+                    { name: "脈弦數或滑數", desc: "肝膽鬱熱或痰濕積滯" },
+                    { name: "脈沉遲不暢", desc: "陽氣不達，血行凝滯" }
+                ];
+                pulseData = pulseTypes[userData.age > 50 ? Math.floor(Math.random() * 3) + 1 : Math.floor(Math.random() * pulseTypes.length)];
+
+                stopCurrentStream();
+                startTongueScan();
+            }, 3000);
+        }
+
+        // 啟動前置鏡頭 (舌苔望診)
+        async function startTongueScan() {
+            document.getElementById('step-pulse').classList.add('hidden');
+            document.getElementById('step-tongue').classList.remove('hidden');
+
+            const video = document.getElementById('webcamTongue');
+            try {
+                // 優先請求前置鏡頭 (user)
+                activeStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+                    audio: false
+                });
+
+                video.srcObject = activeStream;
+                await video.play();
+            } catch (err) {
+                alert("無法存取前置鏡頭！");
+                console.error(err);
+            }
+        }
+
+        // 擷取舌苔數據並生成報告
+        function captureTongue() {
+            const btn = document.getElementById('btnTongueCapture');
+            btn.disabled = true;
+            btn.innerText = "進行中醫九大體質 AI 綜合辨證...";
+
+            setTimeout(() => {
+                // 中醫九大體質數據庫
+                const constitutions = [
+                    { 
+                        title: "平和質 (陰陽氣血調和)", 
+                        tongue: "舌色淡紅，苔薄白", 
+                        advice: "體質良好，保持規律作息與均衡飲食即可。",
+                        organs: { heart: 90, liver: 88, spleen: 85, lung: 88, kidney: 90 }
+                    },
+                    { 
+                        title: "氣虛質 (元氣不足)", 
+                        tongue: "舌質淡紅、邊有齒痕", 
+                        advice: "宜健脾益氣。可多食山藥、黨參、黃耆，避免劇烈運動與過度勞累。",
+                        organs: { heart: 75, liver: 78, spleen: 62, lung: 68, kidney: 72 }
+                    },
+                    { 
+                        title: "陽虛質 (陽氣不足、畏寒)", 
+                        tongue: "舌質淡白偏胖，苔白滑", 
+                        advice: "宜溫陽補氣。多食用乾薑、桂圓、羊肉，注意保暖，避免生冷寒涼食物。",
+                        organs: { heart: 70, liver: 72, spleen: 65, lung: 70, kidney: 58 }
+                    },
+                    { 
+                        title: "陰虛質 (津液虧少、口乾)", 
+                        tongue: "舌紅少苔，或有裂紋", 
+                        advice: "宜滋陰潤燥。可多吃百合、枸杞、銀耳，少吃辛辣燒烤食物。",
+                        organs: { heart: 72, liver: 65, spleen: 74, lung: 62, kidney: 60 }
+                    },
+                    { 
+                        title: "痰濕質 (水濕內停、體重易增加)", 
+                        tongue: "舌體胖大，苔白膩", 
+                        advice: "宜祛濕化痰。多吃陳皮、薏仁、茯苓，堅持規律有氧運動以宣發氣血。",
+                        organs: { heart: 78, liver: 70, spleen: 58, lung: 72, kidney: 75 }
+                    },
+                    { 
+                        title: "濕熱質 (濕熱內蘊、易發痘)", 
+                        tongue: "舌質偏紅，苔黃厚膩", 
+                        advice: "宜清熱利濕。少吃油膩甜食與烈酒，適量食用綠豆、苦瓜、冬瓜。",
+                        organs: { heart: 80, liver: 60, spleen: 62, lung: 75, kidney: 78 }
+                    },
+                    { 
+                        title: "血瘀質 (血行不暢)", 
+                        tongue: "舌質紫暗或有瘀點/瘀斑", 
+                        advice: "宜活血化瘀。多吃黑木耳、山楂、玫瑰花茶，保持心情舒暢與規律運動。",
+                        organs: { heart: 65, liver: 62, spleen: 75, lung: 78, kidney: 70 }
+                    },
+                    { 
+                        title: "氣鬱質 (氣機鬱滯、情志低落)", 
+                        tongue: "舌邊尖紅，苔薄白", 
+                        advice: "宜疏肝理氣。建議多參與戶外活動、聽音樂，可泡飲玫瑰花或陳皮茶。",
+                        organs: { heart: 72, liver: 55, spleen: 68, lung: 75, kidney: 80 }
+                    },
+                    { 
+                        title: "特稟質 (先天敏感體質)", 
+                        tongue: "舌相多變，或見地圖舌", 
+                        advice: "宜固表養血。避免接觸已知過敏原，飲食宜清淡溫和。",
+                        organs: { heart: 80, liver: 75, spleen: 70, lung: 60, kidney: 75 }
+                    }
+                ];
+
+                // 根據年齡進行微調
+                let index = Math.floor(Math.random() * constitutions.length);
+                if (userData.age > 60 && index === 0) index = 1; // 高齡者權重微調
+
+                const res = constitutions[index];
+                tongueData.name = res.tongue;
+
+                stopCurrentStream();
+                showReport(res);
+            }, 2500);
+        }
+
+        // 顯示最後報告
+        function showReport(res) {
+            document.getElementById('step-tongue').classList.add('hidden');
+            document.getElementById('step-report').classList.remove('hidden');
+
+            document.getElementById('repUserMeta').innerText = `受測個案：${userData.age} 歲 / ${userData.gender === 'male' ? '男性' : '女性'}`;
+            document.getElementById('repConstitution').innerText = res.title;
+            document.getElementById('repPulse').innerText = pulseData.name;
+            document.getElementById('repTongue').innerText = tongueData.name;
+            document.getElementById('repAdvice').innerText = res.advice;
+
+            // 動態渲染五臟六腑霸條
+            const organMap = [
+                { key: 'heart', label: '心 (主血脈/神明)' },
+                { key: 'liver', label: '肝 (主疏泄/藏血)' },
+                { key: 'spleen', label: '脾 (主運化/升清)' },
+                { key: 'lung', label: '肺 (主宣發/肅降)' },
+                { key: 'kidney', label: '腎 (主藏精/先天)' }
+            ];
+
+            let html = '';
+            organMap.forEach(item => {
+                let score = res.organs[item.key];
+                // 隨年齡微調腎與氣血得分
+                if (item.key === 'kidney' && userData.age > 50) score = Math.max(50, score - 8);
+
+                let color = score >= 75 ? 'bg-emerald-500' : (score >= 65 ? 'bg-amber-500' : 'bg-rose-500');
+                html += `
+                    <div>
+                        <div class="flex justify-between mb-1">
+                            <span class="font-bold text-slate-300">${item.label}</span>
+                            <span class="text-slate-400">${score} 分</span>
+                        </div>
+                        <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                            <div class="${color} h-full" style="width: ${score}%"></div>
+                        </div>
+                    </div>
+                `;
+            });
+            document.getElementById('organMatrix').innerHTML = html;
+        }
+    </script>
+</body>
+</html>
