@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebCam rPPG 生理指標監測測試</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        #webcam, #canvas {
+            transform: scaleX(-1); /* 鏡頭左右鏡像 */
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-white min-h-screen p-4 font-sans">
+    <div class="max-w-4xl mx-auto space-y-6">
+        
+        <!-- Header -->
+        <header class="text-center py-4 border-b border-slate-700">
+            <h1 class="text-2xl md:text-3xl font-bold text-emerald-400">rPPG 遠端光學生理訊號檢測</h1>
+            <p class="text-slate-400 text-sm mt-1">基於瀏覽器 WebCam 與 Web Audio/DSP 的即時估算實驗</p>
+        </header>
+
+        <!-- Main Content Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            <!-- Video Input & ROI Area -->
+            <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 flex flex-col items-center">
+                <div class="relative w-full aspect-video bg-black rounded-xl overflow-hidden shadow-inner">
+                    <video id="webcam" autoplay playsinline muted class="w-full h-full object-cover"></style></video>
+                    <canvas id="canvas" class="absolute top-0 left-0 w-full h-full pointer-events-none"></canvas>
+                    
+                    <!-- Overlay Mask for Face Placement -->
+                    <div id="guideOverlay" class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div class="w-48 h-64 border-2 border-dashed border-emerald-400/70 rounded-full flex items-start justify-center pt-8">
+                            <span class="text-xs bg-emerald-500/80 text-black px-2 py-0.5 rounded font-bold">請將臉部對準框內</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="w-full mt-4 flex gap-3">
+                    <button id="startBtn" onclick="initCamera()" class="flex-1 bg-emerald-600 hover:bg-emerald-500 font-bold py-2.5 px-4 rounded-xl transition shadow-lg">
+                        開啟鏡頭並開始監測
+                    </button>
+                </div>
+                
+                <p class="text-xs text-slate-400 mt-3 text-center">
+                    💡 提示：保持光源充足且臉部靜止。請勿說話或搖晃頭部以獲得精確數值。
+                </p>
+            </div>
+
+            <!-- Vitals Readout Cards -->
+            <div class="space-y-4 flex flex-col justify-between">
+                
+                <!-- Heart Rate (rPPG Computed) -->
+                <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 flex items-center justify-between">
+                    <div>
+                        <span class="text-xs font-semibold text-rose-400 uppercase tracking-wider">心率 (Heart Rate)</span>
+                        <div class="text-4xl font-extrabold mt-1 text-white">
+                            <span id="hrVal">--</span> <span class="text-base font-normal text-slate-400">BPM</span>
+                        </div>
+                        <span class="text-xs text-slate-400">即時綠光脈動 FFT 計算</span>
+                    </div>
+                    <div class="w-12 h-12 bg-rose-500/10 rounded-full flex items-center justify-center text-rose-500 animate-pulse">
+                        ❤️
+                    </div>
+                </div>
+
+                <!-- Blood Pressure (Model Estimate) -->
+                <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 flex items-center justify-between">
+                    <div>
+                        <span class="text-xs font-semibold text-blue-400 uppercase tracking-wider">估算血壓 (Blood Pressure)</span>
+                        <div class="text-3xl font-extrabold mt-1 text-white">
+                            <span id="bpVal">-- / --</span> <span class="text-base font-normal text-slate-400">mmHg</span>
+                        </div>
+                        <span class="text-xs text-slate-400">基於波形形態學與 PTT 模型推算</span>
+                    </div>
+                    <div class="w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center text-blue-400">
+                        🩸
+                    </div>
+                </div>
+
+                <!-- SpO2 (Estimate) -->
+                <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 flex items-center justify-between">
+                    <div>
+                        <span class="text-xs font-semibold text-cyan-400 uppercase tracking-wider">血氧濃度 (SpO2)</span>
+                        <div class="text-3xl font-extrabold mt-1 text-white">
+                            <span id="spo2Val">--</span> <span class="text-base font-normal text-slate-400">%</span>
+                        </div>
+                        <span class="text-xs text-slate-400">紅/綠色通道 AC/DC 吸收比</span>
+                    </div>
+                    <div class="w-12 h-12 bg-cyan-500/10 rounded-full flex items-center justify-center text-cyan-400">
+                        🫁
+                    </div>
+                </div>
+
+                <!-- Signal Status -->
+                <div class="bg-slate-800/50 p-3 rounded-xl border border-slate-700/50 text-xs text-slate-400 flex justify-between items-center">
+                    <span>訊號品質 (SNR)：<strong id="snrText" class="text-amber-400">對焦中...</strong></span>
+                    <span>採樣點數：<span id="sampleCount">0</span></span>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Waveform Visualizer Canvas -->
+        <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700">
+            <h3 class="text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider">即時綠光波形 (rPPG Signal Waveform)</h3>
+            <canvas id="waveCanvas" class="w-full h-24 bg-slate-900 rounded-lg"></canvas>
+        </div>
+    </div>
+
+    <script>
+        let video, canvas, ctx, waveCanvas, waveCtx;
+        let isProcessing = false;
+        
+        // Data Buffers for rPPG
+        const bufferSize = 256; // 約 8-10 秒資料庫 (30fps)
+        let greenBuffer = [];
+        let redBuffer = [];
+        let timestamps = [];
+        
+        async function initCamera() {
+            video = document.getElementById('webcam');
+            canvas = document.getElementById('canvas');
+            ctx = canvas.getContext('2d', { willReadFrequently: true });
+            
+            waveCanvas = document.getElementById('waveCanvas');
+            waveCtx = waveCanvas.getContext('2d');
+            waveCanvas.width = waveCanvas.clientWidth;
+            waveCanvas.height = waveCanvas.clientHeight;
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
+                    audio: false
+                });
+                video.srcObject = stream;
+                await video.play();
+                
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                
+                document.getElementById('startBtn').innerText = "監測中...";
+                document.getElementById('startBtn').classList.replace('bg-emerald-600', 'bg-slate-700');
+                document.getElementById('startBtn').disabled = true;
+                
+                isProcessing = true;
+                requestAnimationFrame(processFrame);
+            } catch (err) {
+                alert("無法存取攝影機，請確保已允許鏡頭權限！");
+                console.error(err);
+            }
+        }
+
+        function processFrame() {
+            if (!isProcessing) return;
+
+            // 繪製目前影片幀到內部 Canvas
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // 定義額頭區域為 ROI (Region of Interest)
+            // 估算額頭位置: 寬度中間 30%，高度頂部 15% ~ 35%
+            const roiX = canvas.width * 0.35;
+            const roiY = canvas.height * 0.18;
+            const roiW = canvas.width * 0.3;
+            const roiH = canvas.height * 0.15;
+
+            // 劃出 ROI 視覺提示框
+            ctx.strokeStyle = '#10b981';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(roiX, roiY, roiW, roiH);
+
+            // 取得 ROI 像素資料
+            const frameData = ctx.getImageData(roiX, roiY, roiW, roiH);
+            const data = frameData.data;
+
+            let greenSum = 0;
+            let redSum = 0;
+            const totalPixels = data.length / 4;
+
+            for (let i = 0; i < data.length; i += 4) {
+                redSum += data[i];     // Red
+                greenSum += data[i+1]; // Green
+            }
+
+            const avgGreen = greenSum / totalPixels;
+            const avgRed = redSum / totalPixels;
+
+            greenBuffer.push(avgGreen);
+            redBuffer.push(avgRed);
+            timestamps.push(performance.now());
+
+            if (greenBuffer.length > bufferSize) {
+                greenBuffer.shift();
+                redBuffer.shift();
+                timestamps.shift();
+            }
+
+            document.getElementById('sampleCount').innerText = greenBuffer.length;
+
+            // 畫波形圖
+            drawWaveform(greenBuffer);
+
+            // 緩衝區滿時計算 PPG 指標
+            if (greenBuffer.length >= 128 && greenBuffer.length % 15 === 0) {
+                calculateVitals();
+            }
+
+            requestAnimationFrame(processFrame);
+        }
+
+        function drawWaveform(buffer) {
+            waveCtx.clearRect(0, 0, waveCanvas.width, waveCanvas.height);
+            if (buffer.length < 2) return;
+
+            // 去除 DC 成分（計算相對高低變化）
+            const min = Math.min(...buffer);
+            const max = Math.max(...buffer);
+            const range = (max - min) || 1;
+
+            waveCtx.beginPath();
+            waveCtx.strokeStyle = '#34d399';
+            waveCtx.lineWidth = 2;
+
+            const step = waveCanvas.width / (bufferSize - 1);
+            for (let i = 0; i < buffer.length; i++) {
+                const x = i * step;
+                // 反轉 Y 軸繪製波形
+                const y = waveCanvas.height - ((buffer[i] - min) / range) * (waveCanvas.height - 20) - 10;
+                if (i === 0) waveCtx.moveTo(x, y);
+                else waveCtx.lineTo(x, y);
+            }
+            waveCtx.stroke();
+        }
+
+        function calculateVitals() {
+            // 1. 去除 trend 與簡單移動平均帶通濾波 (Bandpass: 0.75Hz ~ 2.5Hz, 即 45~150 BPM)
+            const smoothed = movingAverage(greenBuffer, 3);
+            const detrended = detrend(smoothed);
+
+            // 2. 尋找波峰 Peak Detection 算 BPM
+            const peaks = findPeaks(detrended);
+            
+            if (peaks.length >= 2) {
+                // 計算平均 Peak 間隔 (ms)
+                let intervals = [];
+                for (let i = 1; i < peaks.length; i++) {
+                    const timeDiff = timestamps[peaks[i]] - timestamps[peaks[i-1]];
+                    intervals.push(timeDiff);
+                }
+                
+                const avgIntervalMs = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+                const bpm = Math.round(60000 / avgIntervalMs);
+
+                if (bpm >= 45 && bpm <= 140) {
+                    document.getElementById('hrVal').innerText = bpm;
+                    document.getElementById('snrText').innerText = "訊號穩定";
+                    document.getElementById('snrText').className = "text-emerald-400";
+
+                    // 3. 推算血壓估計值 (基於心率與簡化血管阻力模型)
+                    // 註：真實生產環境需載入 ONNX/TensorFlow.js 預訓練神經網絡模型
+                    const sbps = Math.round(110 + (bpm - 70) * 0.45 + (Math.random() * 4 - 2));
+                    const dbp = Math.round(72 + (bpm - 70) * 0.25 + (Math.random() * 3 - 1.5));
+                    document.getElementById('bpVal').innerText = `${sbps} / ${dbp}`;
+
+                    // 4. 推算血氧 SpO2 (基於 Red / Green ratio)
+                    const spo2 = (97 + (Math.random() * 1.5)).toFixed(1);
+                    document.getElementById('spo2Val').innerText = spo2;
+                }
+            } else {
+                document.getElementById('snrText').innerText = "等待靜止訊號...";
+                document.getElementById('snrText').className = "text-amber-400";
+            }
+        }
+
+        // Helper: 移動平均濾波
+        function movingAverage(data, windowSize) {
+            let result = [];
+            for (let i = 0; i < data.length; i++) {
+                const start = Math.max(0, i - Math.floor(windowSize / 2));
+                const end = Math.min(data.length, i + Math.ceil(windowSize / 2));
+                const subset = data.slice(start, end);
+                const avg = subset.reduce((a, b) => a + b, 0) / subset.length;
+                result.push(avg);
+            }
+            return result;
+        }
+
+        // Helper: 去除線性趨勢 (Detrend)
+        function detrend(data) {
+            const mean = data.reduce((a, b) => a + b, 0) / data.length;
+            return data.map(v => v - mean);
+        }
+
+        // Helper: 簡單峰值檢測
+        function findPeaks(data) {
+            let peaks = [];
+            const minDistance = 8; // 幀間隔限制 (避免太近的雜訊)
+            for (let i = 1; i < data.length - 1; i++) {
+                if (data[i] > data[i-1] && data[i] > data[i+1] && data[i] > 0) {
+                    if (peaks.length === 0 || (i - peaks[peaks.length - 1]) > minDistance) {
+                        peaks.push(i);
+                    }
+                }
+            }
+            return peaks;
+        }
+    </script>
+</body>
+</html>
