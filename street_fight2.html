@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Street Fighter II: Motion Edition</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- MediaPipe Pose & Camera Utils -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Noto+Sans+TC:wght@700;900&display=swap');
+        
+        * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #05050d; font-family: 'Noto Sans TC', sans-serif; }
+        .font-arcade { font-family: 'Press Start 2P', monospace; }
+
+        #gameWrapper {
+            position: relative; width: 100%; height: 100%; max-width: 1280px; max-height: 720px;
+            margin: 0 auto; display: flex; justify-content: center; align-items: center; background: #000;
+            box-shadow: 0 0 50px rgba(255, 0, 85, 0.2);
+        }
+
+        canvas#gameCanvas { width: 100%; height: 100%; object-fit: contain; background: #0a0a16; display: block; }
+
+        .neon-text-red { text-shadow: 0 0 5px #ff0055, 0 0 10px #ff0055, 0 0 20px #ff0055; }
+        .neon-text-yellow { text-shadow: 0 0 5px #ffcc00, 0 0 10px #ffcc00, 0 0 20px #ffcc00; }
+        .neon-text-cyan { text-shadow: 0 0 5px #00f0ff, 0 0 10px #00f0ff, 0 0 20px #00f0ff; }
+
+        .scanlines {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.3) 50%);
+            background-size: 100% 4px; z-index: 10; pointer-events: none;
+        }
+
+        #webcamVideo { display: none; transform: scaleX(-1); }
+
+        .shake { animation: shakeAnim 0.25s cubic-bezier(.36,.07,.19,.97) both; }
+        @keyframes shakeAnim {
+            10%, 90% { transform: translate3d(-4px, 0, 0); }
+            20%, 80% { transform: translate3d(6px, -4px, 0); }
+            30%, 50%, 70% { transform: translate3d(-7px, 5px, 0); }
+            40%, 60% { transform: translate3d(7px, -3px, 0); }
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen bg-slate-950 text-white overflow-hidden">
+
+    <div id="gameWrapper" class="relative overflow-hidden border border-slate-800">
+        <div class="scanlines"></div>
+        <video id="webcamVideo" playsinline></video>
+        <canvas id="gameCanvas" width="960" height="540"></canvas>
+
+        <!-- Top Navigation Bar -->
+        <div class="absolute top-3 left-3 right-3 z-20 flex justify-between items-center pointer-events-auto">
+            <div class="flex items-center space-x-2 bg-slate-900/90 border border-yellow-500/40 px-3 py-1.5 rounded shadow-lg backdrop-blur-md">
+                <span class="font-arcade text-xs text-yellow-400 tracking-wider">SF II: HK STAGE</span>
+                <span class="text-[10px] bg-red-600 text-white px-1.5 py-0.5 rounded font-mono font-bold" id="p1BadgeName">RYU</span>
+            </div>
+
+            <div class="flex items-center space-x-2">
+                <button id="btnToggleCam" onclick="toggleCamera()" class="bg-slate-800/90 hover:bg-slate-700 text-emerald-400 text-xs px-3 py-1.5 rounded border border-emerald-500/30 flex items-center space-x-1.5 shadow">
+                    <i class="fa-solid fa-camera"></i>
+                    <span id="camBtnText" class="font-arcade text-[10px]">📷 CAM OFF</span>
+                </button>
+                <button id="btnToggleInput" onclick="toggleInputMode()" class="bg-indigo-900/90 hover:bg-indigo-800 text-indigo-200 text-xs px-3 py-1.5 rounded border border-indigo-400/30 flex items-center space-x-1.5 shadow">
+                    <i class="fa-solid fa-gamepad"></i>
+                    <span id="inputBtnText" class="font-arcade text-[10px]">MOTION</span>
+                </button>
+                <button onclick="toggleFullScreen()" class="bg-purple-900/90 hover:bg-purple-800 text-purple-200 text-xs px-3 py-1.5 rounded border border-purple-400/30 shadow">
+                    <i class="fa-solid fa-expand"></i>
+                </button>
+                <button onclick="openHelpModal()" class="bg-amber-600/90 hover:bg-amber-500 text-white text-xs px-2.5 py-1.5 rounded border border-amber-400/30 shadow">
+                    <i class="fa-solid fa-gear"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- PIP WebCam Skeleton Canvas -->
+        <div id="pipContainer" class="absolute bottom-3 right-3 z-20 w-36 h-28 bg-slate-900/85 border-2 border-emerald-500/50 rounded overflow-hidden hidden shadow-2xl backdrop-blur-sm">
+            <canvas id="pipCanvas" class="w-full h-full object-cover transform -scale-x-100"></canvas>
+            <div class="absolute bottom-0 left-0 right-0 bg-black/80 text-[8px] text-emerald-400 text-center py-0.5 font-mono">AI TRACKER</div>
+        </div>
+
+        <!-- Gesture Status Badges -->
+        <div id="gestureBadges" class="absolute bottom-3 left-3 z-20 flex flex-wrap gap-1.5 max-w-xs pointer-events-none">
+            <span id="badgeGuard" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800/80 text-slate-500 border border-slate-700">GUARD / 防禦</span>
+            <span id="badgePunch" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800/80 text-slate-500 border border-slate-700">PUNCH / 拳</span>
+            <span id="badgeKick" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800/80 text-slate-500 border border-slate-700">KICK / 腳</span>
+            <span id="badgeSpecial" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800/80 text-slate-500 border border-slate-700">SPECIAL / 必殺</span>
+        </div>
+
+        <!-- 1. START Screen Overlay -->
+        <div id="startScreen" class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/90 backdrop-blur-md">
+            <h1 class="text-4xl md:text-6xl font-black italic text-yellow-400 neon-text-yellow mb-2 font-arcade">STREET FIGHTER II</h1>
+            <h2 class="text-sm md:text-lg font-bold text-red-500 neon-text-red mb-8 tracking-widest">香港街頭 MOTION EDITION</h2>
+            <button onclick="goToCharSelect()" class="px-10 py-4 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 text-white font-arcade text-sm rounded-xl shadow-2xl border-2 border-yellow-300 animate-pulse">
+                START 遊戲開始
+            </button>
+        </div>
+
+        <!-- 2. Character Select Screen Overlay -->
+        <div id="charSelectScreen" class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/90 backdrop-blur-md hidden">
+            <h2 class="text-2xl md:text-4xl font-black italic text-yellow-400 neon-text-yellow mb-2 font-arcade">SELECT FIGHTER</h2>
+            <p class="text-xs text-slate-400 mb-6">選擇您的對戰主角 (5 人陣容)</p>
+
+            <div class="flex justify-center gap-2 md:gap-3 mb-8 flex-wrap max-w-xl">
+                <button onclick="selectChar('ryu')" id="btnRyu" class="px-3.5 py-3 bg-amber-500 text-black font-arcade text-xs rounded-xl border-2 border-white shadow-xl">RYU 隆</button>
+                <button onclick="selectChar('ken')" id="btnKen" class="px-3.5 py-3 bg-slate-800 text-white font-arcade text-xs rounded-xl border-2 border-slate-600 shadow-xl">KEN 肯</button>
+                <button onclick="selectChar('guile')" id="btnGuile" class="px-3.5 py-3 bg-slate-800 text-white font-arcade text-xs rounded-xl border-2 border-slate-600 shadow-xl">GUILE 古烈</button>
+                <button onclick="selectChar('ehonda')" id="btnEhonda" class="px-3.5 py-3 bg-slate-800 text-white font-arcade text-xs rounded-xl border-2 border-slate-600 shadow-xl">HONDA 本田</button>
+                <button onclick="selectChar('chunli')" id="btnChunli" class="px-3.5 py-3 bg-slate-800 text-white font-arcade text-xs rounded-xl border-2 border-slate-600 shadow-xl">CHUN-LI 春麗</button>
+            </div>
+
+            <button onclick="startBattle()" class="px-8 py-3 bg-red-600 hover:bg-red-500 text-white font-arcade text-xs rounded-lg shadow-lg border border-yellow-300">
+                FIGHT! 進入對戰
+            </button>
+        </div>
+
+        <!-- Dynamic Help Modal -->
+        <div id="helpModal" class="absolute inset-0 z-40 bg-black/85 backdrop-blur-md hidden flex items-center justify-center p-4">
+            <div class="bg-slate-900 border border-amber-500/40 w-full max-w-xl rounded-xl p-5 text-slate-200 shadow-2xl">
+                <div class="flex justify-between items-center mb-3 border-b border-slate-800 pb-2">
+                    <h3 id="helpTitle" class="text-sm font-bold text-amber-400 font-arcade">角色必殺技出招教學</h3>
+                    <button onclick="closeHelpModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div id="helpContent" class="space-y-2 text-xs text-slate-300 leading-relaxed"></div>
+                <div class="mt-4 text-right">
+                    <button onclick="closeHelpModal()" class="px-4 py-1.5 bg-amber-600 text-white rounded text-xs font-arcade">了解</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Over Overlay -->
+        <div id="gameOverOverlay" class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/85 hidden">
+            <h2 id="winnerText" class="text-3xl md:text-5xl font-black italic text-yellow-400 font-arcade neon-text-yellow mb-6">YOU WIN THE MATCH!</h2>
+            <div class="flex flex-row gap-4">
+                <button onclick="restartMatch()" class="px-6 py-3 bg-red-600 hover:bg-red-500 text-white font-arcade text-xs rounded border border-yellow-300 shadow-lg">REMATCH / 重新再玩</button>
+                <button onclick="returnToMainMenu()" class="px-6 py-3 bg-slate-700 hover:bg-slate-600 text-yellow-300 font-arcade text-xs rounded border border-yellow-400/50 shadow-lg">重新開始 (MAIN MENU)</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const pipCanvas = document.getElementById('pipCanvas');
+        const pipCtx = pipCanvas.getContext('2d');
+
+        const CANVAS_WIDTH = 960;
+        const CANVAS_HEIGHT = 540;
+        const GROUND_Y = 440;
+
+        const STATE_START = 'START';
+        const STATE_SELECT = 'SELECT';
+        const STATE_PLAYING = 'PLAYING';
+        const STATE_GAMEOVER = 'GAMEOVER';
+        let gameState = STATE_START;
+
+        let selectedCharacter = 'ryu';
+        let inputMode = 'MOTION'; // 'MOTION' or 'KEYBOARD'
+        let specialCooldown = 0;
+        let screenShakeTime = 0;
+
+        function triggerScreenShake() {
+            screenShakeTime = 10;
+        }
+
+        // --- Sound FX Extensions ---
+        class SoundFX {
+            constructor() { this.ctx = null; }
+            init() {
+                try {
+                    if (!this.ctx) {
+                        const AudioContext = window.AudioContext || window.webkitAudioContext;
+                        this.ctx = new AudioContext();
+                    }
+                    if (this.ctx.state === 'suspended') this.ctx.resume();
+                } catch(e) {}
+            }
+            playHit() {
+                try {
+                    if (!this.ctx) return;
+                    const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+                    osc.type = 'sawtooth'; osc.frequency.setValueAtTime(200, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.15);
+                    gain.gain.setValueAtTime(0.5, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.start(); osc.stop(this.ctx.currentTime + 0.15);
+                } catch(e) {}
+            }
+            playSpecial() {
+                try {
+                    if (!this.ctx) return;
+                    const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+                    osc.type = 'triangle'; osc.frequency.setValueAtTime(300, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(900, this.ctx.currentTime + 0.25);
+                    gain.gain.setValueAtTime(0.4, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.25);
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.start(); osc.stop(this.ctx.currentTime + 0.25);
+                } catch(e) {}
+            }
+            playSpinningKick() {
+                try {
+                    if (!this.ctx) return;
+                    const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+                    osc.type = 'sawtooth'; osc.frequency.setValueAtTime(400, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(800, this.ctx.currentTime + 0.5);
+                    gain.gain.setValueAtTime(0.5, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.5);
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.start(); osc.stop(this.ctx.currentTime + 0.5);
+                } catch(e) {}
+            }
+            playHeadbutt() {
+                try {
+                    if (!this.ctx) return;
+                    const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+                    osc.type = 'square'; osc.frequency.setValueAtTime(100, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(300, this.ctx.currentTime + 0.4);
+                    gain.gain.setValueAtTime(0.6, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.4);
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.start(); osc.stop(this.ctx.currentTime + 0.4);
+                } catch(e) {}
+            }
+            playHadouken() {
+                try {
+                    if (!this.ctx) return;
+                    const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+                    osc.type = 'sine'; osc.frequency.setValueAtTime(220, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(750, this.ctx.currentTime + 0.35);
+                    gain.gain.setValueAtTime(0.4, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.35);
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.start(); osc.stop(this.ctx.currentTime + 0.35);
+                } catch(e) {}
+            }
+            playShoryuken() {
+                try {
+                    if (!this.ctx) return;
+                    const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+                    osc.type = 'square'; osc.frequency.setValueAtTime(140, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(650, this.ctx.currentTime + 0.3);
+                    gain.gain.setValueAtTime(0.45, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.start(); osc.stop(this.ctx.currentTime + 0.3);
+                } catch(e) {}
+            }
+            playKO() {
+                try {
+                    if (!this.ctx) return;
+                    const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+                    osc.type = 'sawtooth'; osc.frequency.setValueAtTime(380, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 1.1);
+                    gain.gain.setValueAtTime(0.6, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 1.1);
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.start(); osc.stop(this.ctx.currentTime + 1.1);
+                } catch(e) {}
+            }
+        }
+
+        const sfx = new SoundFX();
+        let wasCrouching = false;
+
+        class Fighter {
+            constructor(x, name, isCPU = false, charType = 'ryu') {
+                this.x = x; this.y = GROUND_Y;
+                this.vx = 0; this.vy = 0;
+                this.name = name; this.isCPU = isCPU; this.charType = charType;
+                this.width = charType === 'ehonda' ? 85 : 60;
+                this.height = 115;
+                this.hp = 100; this.maxHp = 100;
+                this.isGrounded = true; this.isCrouching = false; this.isGuarding = false;
+                this.facingRight = (x < CANVAS_WIDTH / 2);
+                this.action = 'IDLE'; this.actionTimer = 0; this.hitStun = 0; this.animFrame = 0;
+                this.attackBox = { x: 0, y: 0, width: 0, height: 0, active: false };
+                this.isKnockedDown = false; this.fallAngle = 0;
+                this.isHeadbutting = false;
+                this.specialTrail = [];
+            }
+
+            reset(x) {
+                this.x = x; this.y = GROUND_Y;
+                this.vx = 0; this.vy = 0; this.hp = 100;
+                this.isGrounded = true; this.isCrouching = false; this.isGuarding = false;
+                this.action = 'IDLE'; this.actionTimer = 0; this.hitStun = 0;
+                this.isKnockedDown = false; this.fallAngle = 0; this.isHeadbutting = false;
+                this.specialTrail = [];
+            }
+
+            triggerKnockdown() {
+                this.isKnockedDown = true; this.action = 'HIT';
+                this.attackBox.active = false; this.vy = -9; this.isGrounded = false;
+            }
+
+            jump() {
+                if (this.isGrounded && !this.isKnockedDown && this.hitStun === 0) {
+                    this.vy = -14; this.isGrounded = false; this.action = 'JUMP';
+                }
+            }
+
+            update(enemy) {
+                this.animFrame++;
+
+                if (this.isKnockedDown) {
+                    if (Math.abs(this.fallAngle) < Math.PI / 2) this.fallAngle += (this.facingRight ? -0.15 : 0.15);
+                    if (!this.isGrounded) {
+                        this.vy += 0.85; this.y += this.vy;
+                        if (this.y >= GROUND_Y) { this.y = GROUND_Y; this.vy = 0; this.isGrounded = true; }
+                    }
+                    return;
+                }
+
+                if (this.action === 'IDLE' || this.action === 'JUMP') this.facingRight = (this.x < enemy.x);
+                if (this.hitStun > 0) { this.hitStun--; if (this.hitStun === 0) this.action = 'IDLE'; }
+
+                if (!this.isGrounded) {
+                    this.vy += 0.85; this.y += this.vy;
+                    if (this.y >= GROUND_Y) {
+                        this.y = GROUND_Y; this.vy = 0; this.isGrounded = true;
+                        if (this.action === 'JUMP' || this.action === 'FLASH_KICK' || this.action === 'SPINNING_KICK' || this.action === 'SHORYUKEN') {
+                            this.action = 'IDLE';
+                        }
+                    }
+                }
+
+                this.x += this.vx;
+                if (this.x < 50) this.x = 50;
+                if (this.x > CANVAS_WIDTH - 50) this.x = CANVAS_WIDTH - 50;
+
+                const pushDist = this.charType === 'ehonda' ? 75 : 60;
+                const dist = Math.abs(this.x - enemy.x);
+                if (dist < pushDist && !this.isKnockedDown && !enemy.isKnockedDown) {
+                    const overlap = pushDist - dist;
+                    if (this.x < enemy.x) { this.x -= overlap / 2; enemy.x += overlap / 2; }
+                    else { this.x += overlap / 2; enemy.x -= overlap / 2; }
+                }
+
+                if (this.actionTimer > 0) {
+                    this.actionTimer--;
+                    if (this.actionTimer === 0 && this.hitStun === 0) { 
+                        this.action = 'IDLE'; 
+                        this.attackBox.active = false; 
+                        this.isHeadbutting = false;
+                    }
+                }
+
+                // Fire/trail particles for Shoryuken & Headbutt
+                if (this.action === 'SHORYUKEN') {
+                    for(let i=0; i<3; i++) {
+                        spawnSparks(this.x + (Math.random()-0.5)*30, this.y - 60 + (Math.random()-0.5)*40, Math.random() > 0.3 ? '#ff3300' : '#ffcc00');
+                    }
+                } else if (this.action === 'FLASH_KICK') {
+                    for(let i=0; i<2; i++) {
+                        spawnSparks(this.x + (Math.random()-0.5)*40, this.y - 50 + (Math.random()-0.5)*30, '#00f0ff');
+                    }
+                }
+
+                this.updateHitbox();
+                if (this.isCPU && gameState === STATE_PLAYING) this.updateCPU(enemy);
+            }
+
+            updateHitbox() {
+                if (!this.attackBox.active || this.isKnockedDown) return;
+                let range = 75;
+                if (this.action === 'HUNDRED_HANDS' || this.action === 'HYAKURETSU') range = 75 * 1.5;
+                if (this.action === 'FLASH_KICK') range = 150;
+                if (this.action === 'HEADBUTT') range = 130;
+                if (this.action === 'SPINNING_KICK') range = 160;
+
+                this.attackBox.x = this.facingRight ? this.x + 20 : this.x - 20 - range;
+                this.attackBox.y = this.y - 90;
+                this.attackBox.width = range; this.attackBox.height = 70;
+            }
+
+            punch() {
+                if (this.isKnockedDown || this.actionTimer > 0 || this.hitStun > 0) return;
+                this.action = 'PUNCH'; this.actionTimer = 16; this.attackBox.active = true;
+                sfx.playHit();
+            }
+
+            kick() {
+                if (this.isKnockedDown || this.actionTimer > 0 || this.hitStun > 0) return;
+                this.action = 'KICK'; this.actionTimer = 20; this.attackBox.active = true;
+                sfx.playHit();
+            }
+
+            performSpecial1() {
+                if (this.isKnockedDown || this.actionTimer > 0 || this.hitStun > 0) return;
+                const cType = this.isCPU ? 'ken' : (this.charType || selectedCharacter);
+
+                if (cType === 'guile') {
+                    this.action = 'SONIC_BOOM'; this.actionTimer = 24; sfx.playSpecial();
+                    const spawnX = this.facingRight ? this.x + 50 : this.x - 50;
+                    fireballs.push(new Projectile(spawnX, this.y - 65, this.facingRight, this, 'sonic_boom'));
+                } else if (cType === 'ehonda') {
+                    this.action = 'HUNDRED_HANDS'; this.actionTimer = 35; this.attackBox.active = true; sfx.playSpecial();
+                } else if (cType === 'chunli') {
+                    this.action = 'HYAKURETSU'; this.actionTimer = 35; this.attackBox.active = true; sfx.playSpecial();
+                } else {
+                    this.action = 'HADOUKEN'; this.actionTimer = 26; sfx.playHadouken();
+                    const spawnX = this.facingRight ? this.x + 50 : this.x - 50;
+                    fireballs.push(new Projectile(spawnX, this.y - 65, this.facingRight, this, cType));
+                }
+            }
+
+            performSpecial2() {
+                if (this.isKnockedDown || this.actionTimer > 0 || this.hitStun > 0) return;
+                const cType = this.isCPU ? 'ken' : (this.charType || selectedCharacter);
+
+                if (cType === 'guile') {
+                    this.action = 'FLASH_KICK'; this.actionTimer = 36; sfx.playShoryuken(); triggerScreenShake();
+                    this.vy = -15; this.vx = this.facingRight ? 7 : -7; this.isGrounded = false; this.attackBox.active = true;
+                } else if (cType === 'ehonda') {
+                    this.action = 'HEADBUTT'; this.actionTimer = 38; sfx.playHeadbutt(); triggerScreenShake();
+                    this.isHeadbutting = true;
+                    this.vx = this.facingRight ? 24 : -24; this.attackBox.active = true;
+                    const startX = this.x;
+                    setTimeout(() => {
+                        this.vx = 0;
+                        this.x = startX;
+                        this.isHeadbutting = false;
+                    }, 450);
+                } else if (cType === 'chunli') {
+                    this.action = 'SPINNING_KICK'; this.actionTimer = 48; sfx.playSpinningKick(); triggerScreenShake();
+                    this.vy = -4; this.vx = this.facingRight ? 12 : -12; this.isGrounded = false; this.attackBox.active = true;
+                } else {
+                    this.action = 'SHORYUKEN'; this.actionTimer = 34; sfx.playShoryuken(); triggerScreenShake();
+                    this.vy = -16; this.isGrounded = false; this.attackBox.active = true;
+                }
+            }
+
+            takeDamage(amount) {
+                if (this.isKnockedDown) return;
+                if (this.isGuarding) { this.hp -= amount * 0.05; spawnSparks(this.x, this.y - 60, '#00f0ff'); return; }
+                this.hp -= amount;
+                if (this.hp <= 0) { this.hp = 0; this.triggerKnockdown(); }
+                else { this.hitStun = 22; this.action = 'HIT'; }
+                spawnSparks(this.x, this.y - 60, '#ff0055'); sfx.playHit();
+            }
+
+            updateCPU(enemy) {
+                if (this.isKnockedDown || this.hitStun > 0) return;
+                const dx = enemy.x - this.x, absDx = Math.abs(dx);
+                if (absDx > 180) this.vx = dx > 0 ? 2.8 : -2.8;
+                else if (absDx < 70) { this.vx = 0; if (Math.random() < 0.05) this.punch(); }
+                else { this.vx = 0; if (Math.random() < 0.02) this.performSpecial1(); }
+            }
+
+            draw(ctx) {
+                ctx.save();
+                if (this.isKnockedDown) {
+                    ctx.translate(this.x, this.y - this.height / 2);
+                    ctx.rotate(this.fallAngle);
+                    ctx.translate(-this.x, -(this.y - this.height / 2));
+                }
+
+                // Chun-Li Spinning Bird Kick Inverted Spin Transformation
+                if (this.action === 'SPINNING_KICK') {
+                    ctx.translate(this.x, this.y - 55);
+                    ctx.rotate(Math.PI); // Upside down
+                    ctx.translate(-this.x, -(this.y - 55));
+                }
+
+                const breathY = this.isKnockedDown ? 0 : Math.sin(this.animFrame * 0.1) * 2;
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+                ctx.beginPath(); ctx.ellipse(this.x, GROUND_Y + 4, this.charType === 'ehonda' ? 52 : 38, 12, 0, 0, Math.PI * 2); ctx.fill();
+
+                let cH = this.height, dY = this.y - cH + breathY;
+                if (this.isCrouching && !this.isKnockedDown) { cH = this.height * 0.65; dY = this.y - cH; }
+
+                const cType = this.isCPU ? 'ken' : (this.charType || selectedCharacter);
+
+                // --- Character Body Drawing ---
+                if (cType === 'ehonda') {
+                    ctx.fillStyle = '#fbe3b5';
+                    ctx.fillRect(this.x - 46, dY + 20, 92, cH - 20); // Fat Sumo Body
+                    ctx.fillStyle = '#b91c1c'; ctx.fillRect(this.x - 42, dY + cH - 48, 84, 26); // Mawashi
+                } else if (cType === 'chunli') {
+                    ctx.fillStyle = '#1d4ed8'; // Blue Qipao
+                    ctx.fillRect(this.x - 20, dY + 26, 40, cH - 46);
+                    ctx.fillStyle = '#fbe3b5'; // Leg Slit / Thighs
+                    ctx.fillRect(this.x - 18, dY + cH - 36, 36, 20);
+                    ctx.fillStyle = '#f8fafc'; ctx.fillRect(this.x - 18, dY + cH - 16, 36, 16); // White Boots
+                } else if (cType === 'guile') {
+                    // Guile wearing Green Tanktop & Camo Pants
+                    ctx.fillStyle = '#15803d'; ctx.fillRect(this.x - 22, dY + 28, 44, 30); // Green Tanktop
+                    ctx.fillStyle = '#3f6212'; ctx.fillRect(this.x - 24, dY + 58, 48, cH - 58); // Camo Pants
+                } else if (cType === 'ken') {
+                    ctx.fillStyle = '#dc2626'; ctx.fillRect(this.x - 24, dY + 32, 48, cH - 32);
+                } else { // Ryu
+                    ctx.fillStyle = '#f8fafc'; ctx.fillRect(this.x - 24, dY + 32, 48, cH - 32);
+                }
+
+                // Head & Hair
+                ctx.fillStyle = '#fbe3b5'; ctx.fillRect(this.x - 16, dY, 32, 30);
+                if (cType === 'chunli') {
+                    ctx.fillStyle = '#f8fafc';
+                    ctx.beginPath(); ctx.arc(this.x - 22, dY + 4, 11, 0, Math.PI*2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(this.x + 22, dY + 4, 11, 0, Math.PI*2); ctx.fill();
+                    ctx.fillStyle = '#18181b'; ctx.fillRect(this.x - 16, dY - 4, 32, 10);
+                } else if (cType === 'guile') {
+                    ctx.fillStyle = '#facc15'; // Flat Top Blonde Hair
+                    ctx.beginPath(); ctx.moveTo(this.x - 22, dY); ctx.lineTo(this.x + 22, dY); ctx.lineTo(this.x + 28, dY - 16); ctx.lineTo(this.x, dY - 22); ctx.lineTo(this.x - 28, dY - 16); ctx.closePath(); ctx.fill();
+                } else if (cType === 'ehonda') {
+                    ctx.fillStyle = '#18181b'; ctx.fillRect(this.x - 24, dY - 6, 48, 12); ctx.fillRect(this.x - 8, dY - 20, 16, 14);
+                } else if (cType === 'ken') {
+                    ctx.fillStyle = '#facc15'; ctx.fillRect(this.x - 18, dY - 8, 36, 16);
+                } else { // Ryu
+                    ctx.fillStyle = '#1e1b18'; ctx.fillRect(this.x - 18, dY - 4, 36, 12);
+                    ctx.fillStyle = '#ef4444'; ctx.fillRect(this.x - 18, dY + 6, 36, 6);
+                }
+
+                // --- Special Move FX Overlays ---
+                if (this.action === 'FLASH_KICK') {
+                    // Guile Crescent Flash Kick Arc Blade
+                    ctx.save();
+                    ctx.strokeStyle = '#fef08a'; ctx.lineWidth = 12;
+                    ctx.beginPath();
+                    let arcStart = this.facingRight ? -Math.PI * 0.8 : -Math.PI * 0.2;
+                    let arcEnd = this.facingRight ? Math.PI * 0.2 : -Math.PI * 1.2;
+                    ctx.arc(this.x, dY + 30, 95, arcStart, arcEnd, !this.facingRight);
+                    ctx.stroke();
+                    ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 6;
+                    ctx.stroke();
+                    ctx.restore();
+                } else if (this.action === 'SHORYUKEN') {
+                    // Ryu / Ken Flame Shoryuken Aura
+                    ctx.fillStyle = (cType === 'ken') ? '#ff4500' : '#ff9900';
+                    ctx.beginPath(); ctx.arc(this.x, dY + 20, 50, 0, Math.PI * 2); ctx.fill();
+                } else if (this.action === 'HEADBUTT') {
+                    // E.Honda Bullet Headbutt Motion Shockwave
+                    ctx.fillStyle = '#ff4500';
+                    ctx.fillRect(this.facingRight ? this.x - 90 : this.x + 30, dY + 15, 70, 45);
+                    spawnSparks(this.x, dY + 40, '#ffcc00');
+                } else if (this.action === 'SPINNING_KICK') {
+                    // Chun-Li Spinning Legs Wide Arc
+                    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 14;
+                    ctx.beginPath(); ctx.arc(this.x, dY + 40, 85, 0, Math.PI * 2); ctx.stroke();
+                } else if (this.action === 'HUNDRED_HANDS') {
+                    ctx.fillStyle = '#fbe3b5';
+                    for (let i = 0; i < 8; i++) {
+                        let offsetX = (this.facingRight ? 20 : -90) + Math.sin(this.animFrame + i) * 35;
+                        ctx.fillRect(this.x + offsetX, dY + 10 + (i * 8), 70, 12);
+                    }
+                } else if (this.action === 'HYAKURETSU') {
+                    ctx.fillStyle = '#fbe3b5';
+                    for (let i = 0; i < 8; i++) {
+                        let offsetX = (this.facingRight ? 20 : -90) + Math.cos(this.animFrame + i) * 40;
+                        ctx.fillRect(this.x + offsetX, dY + 20 + (i * 9), 75, 14);
+                    }
+                }
+
+                ctx.restore();
+            }
+        }
+
+        // --- Fireball Projectile Class ---
+        class Projectile {
+            constructor(x, y, facingRight, owner, type) {
+                this.x = x; this.y = y;
+                this.vx = facingRight ? 12 : -12;
+                this.owner = owner; this.type = type;
+                this.radius = 32; this.active = true; this.rot = 0;
+            }
+            update() { 
+                this.x += this.vx; this.rot += 0.35; 
+                if (this.x < -100 || this.x > CANVAS_WIDTH + 100) this.active = false; 
+                // Hadouken Flame Particles
+                spawnSparks(this.x, this.y, this.type === 'ken' ? '#ff3300' : '#00f0ff');
+            }
+            draw(ctx) {
+                ctx.save(); ctx.translate(this.x, this.y);
+                if (this.type === 'sonic_boom') {
+                    ctx.rotate(this.rot);
+                    ctx.fillStyle = '#00f0ff'; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4;
+                    ctx.beginPath(); ctx.ellipse(0, 0, 42, 14, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                } else {
+                    const grad = ctx.createRadialGradient(0, 0, 4, 0, 0, this.radius * 1.5);
+                    if (this.type === 'ken') {
+                        grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.4, '#ff3300'); grad.addColorStop(1, 'transparent');
+                    } else {
+                        grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.4, '#00f0ff'); grad.addColorStop(1, 'transparent');
+                    }
+                    ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(0, 0, this.radius * 1.5, 0, Math.PI * 2); ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        let particles = [];
+        function spawnSparks(x, y, color) {
+            for (let i = 0; i < 8; i++) particles.push({ x, y, vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10, size: Math.random() * 5 + 2, color, life: 15 });
+        }
+
+        const player1 = new Fighter(240, 'RYU');
+        const player2 = new Fighter(720, 'KEN', true, 'ken');
+        let fireballs = [];
+
+        // --- MediaPipe Pose Camera Control ---
+        let pose = null, camera = null, isCamActive = false, isPoseReady = false;
+        
+        async function initMediaPipe() {
+            if (pose) return;
+            try {
+                pose = new Pose({ 
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}` 
+                });
+                pose.setOptions({ 
+                    modelComplexity: 1, 
+                    smoothLandmarks: true, 
+                    minDetectionConfidence: 0.5, 
+                    minTrackingConfidence: 0.5 
+                });
+                pose.onResults(onPoseResults);
+                await pose.initialize();
+                isPoseReady = true;
+
+                const videoElement = document.getElementById('webcamVideo');
+                camera = new Camera(videoElement, {
+                    onFrame: async () => { 
+                        if (isCamActive && pose && isPoseReady) {
+                            try {
+                                await pose.send({ image: videoElement }); 
+                            } catch (err) {
+                                console.warn("MediaPipe Pose send frame error:", err);
+                            }
+                        } 
+                    },
+                    width: 640, 
+                    height: 480
+                });
+            } catch(e) {
+                console.error("MediaPipe initialization error:", e);
+            }
+        }
+
+        function onPoseResults(results) {
+            try {
+                pipCtx.save(); pipCtx.clearRect(0, 0, pipCanvas.width, pipCanvas.height);
+                if (results.image) pipCtx.drawImage(results.image, 0, 0, pipCanvas.width, pipCanvas.height);
+                pipCtx.restore();
+
+                if (!results.poseLandmarks || gameState !== STATE_PLAYING || inputMode !== 'MOTION') return;
+                const lm = results.poseLandmarks;
+                const nose = lm[0], lW = lm[15], rW = lm[16], lS = lm[11], rS = lm[12], lH = lm[23], rH = lm[24], lA = lm[27];
+
+                player1.x += ((1.0 - (lH.x + rH.x) / 2) * CANVAS_WIDTH - player1.x) * 0.22;
+                resetBadges();
+                if (specialCooldown > 0) specialCooldown--;
+
+                const wristDist = Math.hypot(lW.x - rW.x, lW.y - rW.y);
+                const isCrouchingNow = (nose.y > 0.6 || (lH.y + rH.y)/2 > 0.65);
+
+                if (selectedCharacter === 'chunli') {
+                    // 春麗旋風腿：先蹲下然後企起把單隻手臂舉起
+                    if (wasCrouching && !isCrouchingNow && (lW.y < lS.y || rW.y < rS.y) && specialCooldown === 0) {
+                        player1.performSpecial2(); highlightBadge('badgeSpecial'); specialCooldown = 40;
+                    } else if (lW.y < lS.y && rW.y < rS.y && specialCooldown === 0) {
+                        player1.performSpecial1(); highlightBadge('badgeSpecial'); specialCooldown = 25;
+                    }
+                } else if (selectedCharacter === 'ehonda') {
+                    // 本田子彈撞：鞠躬點頭動作
+                    if (nose.y > (lS.y + rS.y)/2 + 0.06 && specialCooldown === 0) {
+                        player1.performSpecial2(); highlightBadge('badgeSpecial'); specialCooldown = 35;
+                    } else if (wristDist < 0.22 && specialCooldown === 0) {
+                        player1.performSpecial1(); highlightBadge('badgeSpecial'); specialCooldown = 25;
+                    }
+                } else if (selectedCharacter === 'guile') {
+                    // 古烈腳刀：先蹲下然後企起把兩隻手臂同時舉起
+                    if (wasCrouching && !isCrouchingNow && lW.y < lS.y && rW.y < rS.y && specialCooldown === 0) {
+                        player1.performSpecial2(); highlightBadge('badgeSpecial'); specialCooldown = 35;
+                    } else if (wristDist < 0.14 && specialCooldown === 0) {
+                        player1.performSpecial1(); highlightBadge('badgeSpecial'); specialCooldown = 25;
+                    }
+                } else { // Ryu & Ken
+                    if (wristDist < 0.18 && specialCooldown === 0) { player1.performSpecial1(); highlightBadge('badgeSpecial'); specialCooldown = 25; }
+                    else if ((lW.y < nose.y - 0.15 || rW.y < nose.y - 0.15) && specialCooldown === 0) { player1.performSpecial2(); highlightBadge('badgeSpecial'); specialCooldown = 30; }
+                }
+
+                if (lW.y < nose.y + 0.12 && rW.y < nose.y + 0.12) { player1.isGuarding = true; highlightBadge('badgeGuard'); } 
+                else player1.isGuarding = false;
+
+                if (lW.y < lS.y && wristDist > 0.35) { player1.punch(); highlightBadge('badgePunch'); }
+                if (lA.y < lH.y + 0.2) { player1.kick(); highlightBadge('badgeKick'); }
+
+                wasCrouching = isCrouchingNow;
+            } catch(e) {}
+        }
+
+        // --- Helper Badge Functions ---
+        function resetBadges() {
+            ['badgeGuard', 'badgePunch', 'badgeKick', 'badgeSpecial'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800/80 text-slate-500 border border-slate-700";
+            });
+        }
+
+        function highlightBadge(id) {
+            const el = document.getElementById(id);
+            if (el) el.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-black border border-amber-300 shadow";
+        }
+
+        // --- UI Global Handlers ---
+        window.goToCharSelect = function() {
+            sfx.init();
+            document.getElementById('startScreen').classList.add('hidden');
+            document.getElementById('charSelectScreen').classList.remove('hidden');
+            gameState = STATE_SELECT;
+        };
+
+        window.selectChar = function(charName) {
+            selectedCharacter = charName;
+            ['btnRyu', 'btnKen', 'btnGuile', 'btnEhonda', 'btnChunli'].forEach(b => {
+                const btn = document.getElementById(b);
+                if (btn) {
+                    btn.className = "px-3.5 py-3 bg-slate-800 text-white font-arcade text-xs rounded-xl border-2 border-slate-600 shadow-xl";
+                }
+            });
+            const selectedBtn = document.getElementById('btn' + charName.charAt(0).toUpperCase() + charName.slice(1));
+            if (selectedBtn) selectedBtn.className = "px-3.5 py-3 bg-amber-500 text-black font-arcade text-xs rounded-xl border-2 border-white shadow-xl";
+            
+            document.getElementById('p1BadgeName').textContent = charName.toUpperCase();
+            player1.charType = charName;
+        };
+
+        window.startBattle = function() {
+            document.getElementById('charSelectScreen').classList.add('hidden');
+            gameState = STATE_PLAYING;
+            player1.reset(240);
+            player2.reset(720);
+        };
+
+        window.restartMatch = function() {
+            document.getElementById('gameOverOverlay').classList.add('hidden');
+            gameState = STATE_PLAYING;
+            player1.reset(240);
+            player2.reset(720);
+        };
+
+        window.returnToMainMenu = function() {
+            document.getElementById('gameOverOverlay').classList.add('hidden');
+            document.getElementById('startScreen').classList.remove('hidden');
+            gameState = STATE_START;
+            player1.reset(240);
+            player2.reset(720);
+        };
+
+        window.toggleCamera = async function() {
+            sfx.init();
+            isCamActive = !isCamActive;
+            const pip = document.getElementById('pipContainer');
+            const btnText = document.getElementById('camBtnText');
+            if (isCamActive) {
+                btnText.textContent = "📷 LOADING...";
+                if (!pose) {
+                    await initMediaPipe();
+                }
+                if (camera) {
+                    await camera.start();
+                    pip.classList.remove('hidden');
+                    btnText.textContent = "📷 CAM ON";
+                } else {
+                    isCamActive = false;
+                    btnText.textContent = "📷 CAM OFF";
+                }
+            } else {
+                if (camera) await camera.stop();
+                pip.classList.add('hidden');
+                btnText.textContent = "📷 CAM OFF";
+            }
+        };
+
+        window.toggleInputMode = function() {
+            inputMode = (inputMode === 'MOTION') ? 'KEYBOARD' : 'MOTION';
+            document.getElementById('inputBtnText').textContent = inputMode;
+        };
+
+        window.openHelpModal = function() {
+            sfx.init();
+            const titleEl = document.getElementById('helpTitle');
+            const contentEl = document.getElementById('helpContent');
+            
+            if (selectedCharacter === 'chunli') {
+                titleEl.textContent = "春麗 (CHUN-LI) 專屬必殺技教學";
+                contentEl.innerHTML = `
+                    <p><b class="text-blue-300">1. 百烈腳 (Hyakuretsukyaku):</b> 伸出雙手上下快速搖動。</p>
+                    <p><b class="text-purple-300">2. 旋風腿 (Spinning Bird Kick):</b> <b>先蹲下，站起時將單隻手臂舉起</b>，春麗倒立打開雙腿旋轉橫掃大半個畫面，之後倒轉企回地上！</p>
+                `;
+            } else if (selectedCharacter === 'ehonda') {
+                titleEl.textContent = "E.本田 (E.HONDA) 專屬必殺技教學";
+                contentEl.innerHTML = `
+                    <p><b class="text-yellow-300">1. 百烈掌 (Hundred Hand Slap):</b> 伸出手掌轉圈。</p>
+                    <p><b class="text-orange-300">2. 子彈飛撞 (Super Headbutt):</b> <b>做出鞠躬點頭動作</b>，本田如子彈般橫飛衝撞並帶有爆裂特效！</p>
+                `;
+            } else if (selectedCharacter === 'guile') {
+                titleEl.textContent = "古烈 (GUILE) 專屬必殺技教學";
+                contentEl.innerHTML = `
+                    <p><b class="text-cyan-300">1. 音速手刀 (Sonic Boom):</b> 雙手拍掌，發射扇形迴力標氣刀。</p>
+                    <p><b class="text-emerald-300">2. 大半月腳刀 (Flash Kick):</b> <b>先蹲下，站起時將兩隻手臂同時舉起</b>，爆發出華麗弧形金青色雙重大半月氣刀！</p>
+                `;
+            } else if (selectedCharacter === 'ken') {
+                titleEl.textContent = "肯 (KEN) 專屬必殺技教學";
+                contentEl.innerHTML = `
+                    <p><b class="text-red-300">1. 火焰波動拳:</b> 雙手在腰前靠近聚氣即可推出火焰波動拳。</p>
+                    <p><b class="text-amber-300">2. 燃燒昇龍拳:</b> 單臂高舉過頭即可使出帶火焰尾跡的昇龍拳。</p>
+                `;
+            } else {
+                titleEl.textContent = "隆 (RYU) 專屬必殺技教學";
+                contentEl.innerHTML = `
+                    <p><b class="text-cyan-300">1. 波動拳:</b> 雙手在腰前靠近聚氣即可推出藍色波動拳。</p>
+                    <p><b class="text-yellow-300">2. 昇龍拳:</b> 單臂高舉過頭即可使出華麗火焰昇龍拳。</p>
+                `;
+            }
+            document.getElementById('helpModal').classList.remove('hidden');
+        };
+
+        window.closeHelpModal = function() { document.getElementById('helpModal').classList.add('hidden'); };
+        window.toggleFullScreen = function() { if (!document.fullscreenElement) document.getElementById('gameWrapper').requestFullscreen().catch(err=>{}); else document.exitFullscreen(); };
+
+        // --- Keyboard Controls Fallback ---
+        window.addEventListener('keydown', (e) => {
+            if (gameState !== STATE_PLAYING) return;
+            if (e.key === 'a' || e.key === 'A') player1.vx = -4;
+            if (e.key === 'd' || e.key === 'D') player1.vx = 4;
+            if (e.key === 'w' || e.key === 'W') player1.jump();
+            if (e.key === 'j' || e.key === 'J') player1.punch();
+            if (e.key === 'k' || e.key === 'K') player1.kick();
+            if (e.key === 'u' || e.key === 'U') player1.performSpecial1();
+            if (e.key === 'i' || e.key === 'I') player1.performSpecial2();
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'a' || e.key === 'A' || e.key === 'd' || e.key === 'D') player1.vx = 0;
+        });
+
+        // --- Main Render Loop ---
+        function gameLoop() {
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            if (screenShakeTime > 0) {
+                screenShakeTime--;
+                ctx.save();
+                ctx.translate((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
+            }
+
+            // Draw Stage Background (Hong Kong Night Scene)
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
+
+            // Neon Signboards
+            ctx.fillStyle = '#ff0055'; ctx.font = 'bold 16px font-arcade'; ctx.fillText('霓虹夜市', 100, 120);
+            ctx.fillStyle = '#00f0ff'; ctx.fillText('街頭霸王', 750, 120);
+
+            if (gameState === STATE_PLAYING || gameState === STATE_GAMEOVER) {
+                // Update Entities
+                player1.update(player2);
+                player2.update(player1);
+
+                // Attack Collisions
+                [player1, player2].forEach(p => {
+                    const target = (p === player1) ? player2 : player1;
+                    if (p.attackBox.active && !target.isKnockedDown) {
+                        const ab = p.attackBox;
+                        if (ab.x < target.x + 30 && ab.x + ab.width > target.x - 30 &&
+                            ab.y < target.y && ab.y + ab.height > target.y - target.height) {
+                            target.takeDamage(12);
+                            p.attackBox.active = false;
+                        }
+                    }
+                });
+
+                // Update Projectiles
+                for (let i = fireballs.length - 1; i >= 0; i--) {
+                    const fb = fireballs[i];
+                    fb.update();
+                    fb.draw(ctx);
+
+                    const target = (fb.owner === player1) ? player2 : player1;
+                    if (fb.active && Math.hypot(fb.x - target.x, fb.y - (target.y - 60)) < 40) {
+                        target.takeDamage(18);
+                        fb.active = false;
+                    }
+                    if (!fb.active) fireballs.splice(i, 1);
+                }
+
+                // Draw Fighters
+                player1.draw(ctx);
+                player2.draw(ctx);
+
+                // Draw Particles
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    const pt = particles[i];
+                    pt.x += pt.vx; pt.y += pt.vy; pt.life--;
+                    ctx.fillStyle = pt.color; ctx.fillRect(pt.x, pt.y, pt.size, pt.size);
+                    if (pt.life <= 0) particles.splice(i, 1);
+                }
+
+                // Draw HUD (HP Bars)
+                ctx.fillStyle = '#334155';
+                ctx.fillRect(50, 30, 350, 24);
+                ctx.fillRect(560, 30, 350, 24);
+
+                ctx.fillStyle = '#eab308';
+                ctx.fillRect(50, 30, (player1.hp / player1.maxHp) * 350, 24);
+                ctx.fillRect(910 - (player2.hp / player2.maxHp) * 350, 30, (player2.hp / player2.maxHp) * 350, 24);
+
+                ctx.fillStyle = '#ffffff'; ctx.font = '12px font-arcade';
+                ctx.fillText(player1.name, 50, 22);
+                ctx.fillText(player2.name, 830, 22);
+
+                // Game Over Check
+                if ((player1.hp <= 0 || player2.hp <= 0) && gameState !== STATE_GAMEOVER) {
+                    gameState = STATE_GAMEOVER;
+                    sfx.playKO();
+                    const winText = document.getElementById('winnerText');
+                    if (player1.hp > 0) winText.textContent = "YOU WIN!";
+                    else winText.textContent = "YOU LOSE!";
+                    document.getElementById('gameOverOverlay').classList.remove('hidden');
+                }
+            }
+
+            if (screenShakeTime > 0) ctx.restore();
+            requestAnimationFrame(gameLoop);
+        }
+
+        window.onload = () => { requestAnimationFrame(gameLoop); };
+    </script>
+</body>
+</html>
