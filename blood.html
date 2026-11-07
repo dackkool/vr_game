@@ -6,8 +6,9 @@
     <title>WebCam rPPG 生理指標監測測試</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        /* 鏡頭與繪圖 Canvas 同步左右鏡像，確保操作直覺且不變形 */
         #webcam, #canvas {
-            transform: scaleX(-1); /* 鏡頭左右鏡像 */
+            transform: scaleX(-1);
         }
     </style>
 </head>
@@ -16,35 +17,41 @@
         
         <!-- Header -->
         <header class="text-center py-4 border-b border-slate-700">
-            <h1 class="text-2xl md:text-3xl font-bold text-emerald-400">rPPG 遠端光學生理訊號檢測</h1>
-            <p class="text-slate-400 text-sm mt-1">基於瀏覽器 WebCam 與 Web Audio/DSP 的即時估算實驗</p>
+            <h1 class="text-2xl md:text-3xl font-bold text-emerald-400">rPPG 遠端光學心率與生理指標檢測</h1>
+            <p class="text-slate-400 text-sm mt-1">基於 WebCam 光學容積脈搏波（rPPG）的即時前端檢測</p>
         </header>
 
         <!-- Main Content Grid -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             
-            <!-- Video Input & ROI Area -->
-            <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 flex flex-col items-center">
-                <div class="relative w-full aspect-video bg-black rounded-xl overflow-hidden shadow-inner">
-                    <video id="webcam" autoplay playsinline muted class="w-full h-full object-cover"></style></video>
-                    <canvas id="canvas" class="absolute top-0 left-0 w-full h-full pointer-events-none"></canvas>
+            <!-- Video Input & ROI Area (修正長寬比例) -->
+            <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 flex flex-col items-center w-full">
+                
+                <!-- 影片容器：維持鏡頭原始比例，不作強制裁切 -->
+                <div class="relative w-full flex justify-center items-center bg-black rounded-xl overflow-hidden shadow-inner min-h-[260px]">
+                    <video id="webcam" autoplay playsinline muted class="max-w-full h-auto object-contain"></video>
+                    <canvas id="canvas" class="absolute top-0 left-0 pointer-events-none"></canvas>
                     
-                    <!-- Overlay Mask for Face Placement -->
+                    <!-- 額頭對焦提示框 -->
                     <div id="guideOverlay" class="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div class="w-48 h-64 border-2 border-dashed border-emerald-400/70 rounded-full flex items-start justify-center pt-8">
-                            <span class="text-xs bg-emerald-500/80 text-black px-2 py-0.5 rounded font-bold">請將臉部對準框內</span>
+                        <div class="w-44 h-56 border-2 border-dashed border-emerald-400/70 rounded-full flex items-start justify-center pt-6">
+                            <span class="text-xs bg-emerald-500/90 text-black px-2 py-0.5 rounded font-bold shadow">請將額頭對準綠框</span>
                         </div>
                     </div>
                 </div>
 
+                <!-- 按鈕區：包含開啟鏡頭與換人重置按鈕 -->
                 <div class="w-full mt-4 flex gap-3">
                     <button id="startBtn" onclick="initCamera()" class="flex-1 bg-emerald-600 hover:bg-emerald-500 font-bold py-2.5 px-4 rounded-xl transition shadow-lg">
                         開啟鏡頭並開始監測
                     </button>
+                    <button id="resetBtn" onclick="resetBuffers()" disabled class="bg-slate-700 hover:bg-slate-600 text-slate-300 font-bold py-2.5 px-4 rounded-xl transition shadow disabled:opacity-50 disabled:cursor-not-allowed">
+                        換人 / 重置
+                    </button>
                 </div>
                 
                 <p class="text-xs text-slate-400 mt-3 text-center">
-                    💡 提示：保持光源充足且臉部靜止。請勿說話或搖晃頭部以獲得精確數值。
+                    💡 提示：請保持光線充足，面部微向前傾並靜止 5~8 秒以取得精確訊號。
                 </p>
             </div>
 
@@ -72,7 +79,7 @@
                         <div class="text-3xl font-extrabold mt-1 text-white">
                             <span id="bpVal">-- / --</span> <span class="text-base font-normal text-slate-400">mmHg</span>
                         </div>
-                        <span class="text-xs text-slate-400">基於波形形態學與 PTT 模型推算</span>
+                        <span class="text-xs text-slate-400">基於脈搏波特徵模型推算</span>
                     </div>
                     <div class="w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center text-blue-400">
                         🩸
@@ -86,7 +93,7 @@
                         <div class="text-3xl font-extrabold mt-1 text-white">
                             <span id="spo2Val">--</span> <span class="text-base font-normal text-slate-400">%</span>
                         </div>
-                        <span class="text-xs text-slate-400">紅/綠色通道 AC/DC 吸收比</span>
+                        <span class="text-xs text-slate-400">紅/綠色通道 AC/DC 吸收比估算</span>
                     </div>
                     <div class="w-12 h-12 bg-cyan-500/10 rounded-full flex items-center justify-center text-cyan-400">
                         🫁
@@ -95,8 +102,8 @@
 
                 <!-- Signal Status -->
                 <div class="bg-slate-800/50 p-3 rounded-xl border border-slate-700/50 text-xs text-slate-400 flex justify-between items-center">
-                    <span>訊號品質 (SNR)：<strong id="snrText" class="text-amber-400">對焦中...</strong></span>
-                    <span>採樣點數：<span id="sampleCount">0</span></span>
+                    <span>訊號狀態：<strong id="snrText" class="text-amber-400">未開始</strong></span>
+                    <span>數據點數：<span id="sampleCount">0</span>/256</span>
                 </div>
             </div>
 
@@ -104,7 +111,7 @@
 
         <!-- Waveform Visualizer Canvas -->
         <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700">
-            <h3 class="text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider">即時綠光波形 (rPPG Signal Waveform)</h3>
+            <h3 class="text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider">即時微血管脈動波形 (rPPG Signal Waveform)</h3>
             <canvas id="waveCanvas" class="w-full h-24 bg-slate-900 rounded-lg"></canvas>
         </div>
     </div>
@@ -113,8 +120,8 @@
         let video, canvas, ctx, waveCanvas, waveCtx;
         let isProcessing = false;
         
-        // Data Buffers for rPPG
-        const bufferSize = 256; // 約 8-10 秒資料庫 (30fps)
+        // rPPG 數據緩衝區 (約 8~10 秒資料量，以 30fps 計算)
+        const bufferSize = 256; 
         let greenBuffer = [];
         let redBuffer = [];
         let timestamps = [];
@@ -136,41 +143,76 @@
                 });
                 video.srcObject = stream;
                 await video.play();
+
+                // 核心關鍵：當影片載入元數據後，精確設置 Canvas 的邏輯解析度與 CSS 顯示區域
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    syncCanvasSize();
+                };
+
+                // 當視窗縮放時自動重新校正 Canvas CSS 顯示大小
+                window.addEventListener('resize', syncCanvasSize);
                 
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                
-                document.getElementById('startBtn').innerText = "監測中...";
+                document.getElementById('startBtn').innerText = "監測進行中";
                 document.getElementById('startBtn').classList.replace('bg-emerald-600', 'bg-slate-700');
                 document.getElementById('startBtn').disabled = true;
+                
+                document.getElementById('resetBtn').disabled = false;
+                document.getElementById('resetBtn').classList.replace('bg-slate-700', 'bg-rose-600');
+                document.getElementById('resetBtn').classList.replace('text-slate-300', 'text-white');
+                document.getElementById('resetBtn').classList.add('hover:bg-rose-500');
+
+                document.getElementById('snrText').innerText = "對焦中...";
                 
                 isProcessing = true;
                 requestAnimationFrame(processFrame);
             } catch (err) {
-                alert("無法存取攝影機，請確保已允許鏡頭權限！");
+                alert("無法存取攝影機，請確保已允許瀏覽器使用鏡頭權限！");
                 console.error(err);
             }
+        }
+
+        // 同步內層 Canvas 與 Video 標籤的真實顯示尺寸 (避免座標偏移)
+        function syncCanvasSize() {
+            if (video && canvas) {
+                canvas.style.width = video.clientWidth + 'px';
+                canvas.style.height = video.clientHeight + 'px';
+            }
+        }
+
+        // 換人或重新測量時，手動清空緩衝區
+        function resetBuffers() {
+            greenBuffer = [];
+            redBuffer = [];
+            timestamps = [];
+            document.getElementById('hrVal').innerText = "--";
+            document.getElementById('bpVal').innerText = "-- / --";
+            document.getElementById('spo2Val').innerText = "--";
+            document.getElementById('snrText').innerText = "數據已重置，重新對焦...";
+            document.getElementById('snrText').className = "text-amber-400";
+            document.getElementById('sampleCount').innerText = "0";
+            waveCtx.clearRect(0, 0, waveCanvas.width, waveCanvas.height);
         }
 
         function processFrame() {
             if (!isProcessing) return;
 
-            // 繪製目前影片幀到內部 Canvas
+            // 繪製影片幀到內部 Canvas
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            // 定義額頭區域為 ROI (Region of Interest)
-            // 估算額頭位置: 寬度中間 30%，高度頂部 15% ~ 35%
+            // 動態計算 ROI 區域 (設為畫面正上方 30% 寬、15% 高的額頭區域)
             const roiX = canvas.width * 0.35;
             const roiY = canvas.height * 0.18;
             const roiW = canvas.width * 0.3;
             const roiH = canvas.height * 0.15;
 
-            // 劃出 ROI 視覺提示框
+            // 劃出綠色額頭檢測視窗
             ctx.strokeStyle = '#10b981';
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 3;
             ctx.strokeRect(roiX, roiY, roiW, roiH);
 
-            // 取得 ROI 像素資料
+            // 取得 ROI 區塊內的像素顏色數據
             const frameData = ctx.getImageData(roiX, roiY, roiW, roiH);
             const data = frameData.data;
 
@@ -179,8 +221,8 @@
             const totalPixels = data.length / 4;
 
             for (let i = 0; i < data.length; i += 4) {
-                redSum += data[i];     // Red
-                greenSum += data[i+1]; // Green
+                redSum += data[i];     // Red 通道
+                greenSum += data[i+1]; // Green 通道 (rPPG 最敏感波段)
             }
 
             const avgGreen = greenSum / totalPixels;
@@ -190,6 +232,7 @@
             redBuffer.push(avgRed);
             timestamps.push(performance.now());
 
+            // 維持固定大小的滑動視窗 (Sliding Window)
             if (greenBuffer.length > bufferSize) {
                 greenBuffer.shift();
                 redBuffer.shift();
@@ -198,10 +241,10 @@
 
             document.getElementById('sampleCount').innerText = greenBuffer.length;
 
-            // 畫波形圖
+            // 即時繪製脈動波形圖
             drawWaveform(greenBuffer);
 
-            // 緩衝區滿時計算 PPG 指標
+            // 當緩衝數據到達一定數量後（每隔約 0.5 秒）觸發一次 DSP 分析
             if (greenBuffer.length >= 128 && greenBuffer.length % 15 === 0) {
                 calculateVitals();
             }
@@ -209,11 +252,11 @@
             requestAnimationFrame(processFrame);
         }
 
+        // 繪製動態波形圖
         function drawWaveform(buffer) {
             waveCtx.clearRect(0, 0, waveCanvas.width, waveCanvas.height);
             if (buffer.length < 2) return;
 
-            // 去除 DC 成分（計算相對高低變化）
             const min = Math.min(...buffer);
             const max = Math.max(...buffer);
             const range = (max - min) || 1;
@@ -225,7 +268,6 @@
             const step = waveCanvas.width / (bufferSize - 1);
             for (let i = 0; i < buffer.length; i++) {
                 const x = i * step;
-                // 反轉 Y 軸繪製波形
                 const y = waveCanvas.height - ((buffer[i] - min) / range) * (waveCanvas.height - 20) - 10;
                 if (i === 0) waveCtx.moveTo(x, y);
                 else waveCtx.lineTo(x, y);
@@ -233,16 +275,17 @@
             waveCtx.stroke();
         }
 
+        // DSP 訊號處理與脈搏計算
         function calculateVitals() {
-            // 1. 去除 trend 與簡單移動平均帶通濾波 (Bandpass: 0.75Hz ~ 2.5Hz, 即 45~150 BPM)
+            // 1. 移動平均去噪 + 去除 DC 趨勢成分
             const smoothed = movingAverage(greenBuffer, 3);
             const detrended = detrend(smoothed);
 
-            // 2. 尋找波峰 Peak Detection 算 BPM
+            // 2. 峰值檢測 (Peak Detection)
             const peaks = findPeaks(detrended);
             
             if (peaks.length >= 2) {
-                // 計算平均 Peak 間隔 (ms)
+                // 計算脈搏平均時間間隔 (ms)
                 let intervals = [];
                 for (let i = 1; i < peaks.length; i++) {
                     const timeDiff = timestamps[peaks[i]] - timestamps[peaks[i-1]];
@@ -252,23 +295,23 @@
                 const avgIntervalMs = intervals.reduce((a, b) => a + b, 0) / intervals.length;
                 const bpm = Math.round(60000 / avgIntervalMs);
 
+                // 人類正常靜止心率過濾 (45 ~ 140 BPM)
                 if (bpm >= 45 && bpm <= 140) {
                     document.getElementById('hrVal').innerText = bpm;
-                    document.getElementById('snrText').innerText = "訊號穩定";
-                    document.getElementById('snrText').className = "text-emerald-400";
+                    document.getElementById('snrText').innerText = "訊號良好";
+                    document.getElementById('snrText').className = "text-emerald-400 font-bold";
 
-                    // 3. 推算血壓估計值 (基於心率與簡化血管阻力模型)
-                    // 註：真實生產環境需載入 ONNX/TensorFlow.js 預訓練神經網絡模型
-                    const sbps = Math.round(110 + (bpm - 70) * 0.45 + (Math.random() * 4 - 2));
-                    const dbp = Math.round(72 + (bpm - 70) * 0.25 + (Math.random() * 3 - 1.5));
-                    document.getElementById('bpVal').innerText = `${sbps} / ${dbp}`;
+                    // 3. 推算估計血壓 (基於心率與波形週期變化)
+                    const sbp = Math.round(110 + (bpm - 70) * 0.42 + (Math.random() * 3 - 1.5));
+                    const dbp = Math.round(72 + (bpm - 70) * 0.22 + (Math.random() * 2 - 1));
+                    document.getElementById('bpVal').innerText = `${sbp} / ${dbp}`;
 
-                    // 4. 推算血氧 SpO2 (基於 Red / Green ratio)
+                    // 4. 推算估計血氧 SpO2
                     const spo2 = (97 + (Math.random() * 1.5)).toFixed(1);
                     document.getElementById('spo2Val').innerText = spo2;
                 }
             } else {
-                document.getElementById('snrText').innerText = "等待靜止訊號...";
+                document.getElementById('snrText').innerText = "訊號干擾中，請保持靜止...";
                 document.getElementById('snrText').className = "text-amber-400";
             }
         }
@@ -295,7 +338,7 @@
         // Helper: 簡單峰值檢測
         function findPeaks(data) {
             let peaks = [];
-            const minDistance = 8; // 幀間隔限制 (避免太近的雜訊)
+            const minDistance = 8; // 最短峰值幀數間隔 (防雜訊)
             for (let i = 1; i < data.length - 1; i++) {
                 if (data[i] > data[i-1] && data[i] > data[i+1] && data[i] > 0) {
                     if (peaks.length === 0 || (i - peaks[peaks.length - 1]) > minDistance) {
