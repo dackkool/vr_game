@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>寶石光學鑑定助手 - Optical Gemology Identifier</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .filter-grayscale { filter: grayscale(100%); }
+        .filter-contrast { filter: contrast(200%) brightness(120%); }
+        .filter-invert { filter: invert(100%); }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased min-h-screen flex flex-col">
+
+    <!-- 法律與專業免責聲明頂部橫幅 -->
+    <header class="bg-amber-900/90 border-b border-amber-700/50 px-4 py-2 text-xs text-amber-200 flex items-start gap-2 shadow-md">
+        <span class="text-base">⚠️</span>
+        <div class="flex-1">
+            <span class="font-bold">重要聲明：</span>本工具提供之檢測結果僅供初步參考，無法替代專業寶石鑑定所（Gemological Laboratory）之科學機器檢驗與正式鑑定證書。
+        </div>
+    </header>
+
+    <!-- 頂部導覽列 -->
+    <nav class="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between shadow-sm">
+        <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-emerald-600 flex items-center justify-center shadow-inner">
+                <span class="text-xl">💎</span>
+            </div>
+            <div>
+                <h1 class="font-bold text-sm tracking-wide text-slate-100">寶石光學鑑定助手</h1>
+                <p class="text-[10px] text-slate-400 tracking-wider">Optical Gemology Identifier</p>
+            </div>
+        </div>
+        <div class="flex items-center space-x-2">
+            <button id="btn-toggle-camera" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 shadow">
+                <span>📷</span> <span id="cam-btn-text">開啟鏡頭</span>
+            </button>
+            <button onclick="openFilterModal()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 border border-slate-700">
+                <span>⚙️</span> 篩選器 <span id="active-filter-count" class="bg-emerald-500 text-slate-950 px-1.5 py-0.2 rounded-full text-[10px] font-bold">13</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- 主視圖區域：鏡頭與取景器 -->
+    <main class="flex-1 flex flex-col p-4 max-w-lg mx-auto w-full space-y-4">
+        
+        <!-- 攝影機取景框卡片 -->
+        <div class="relative bg-black rounded-2xl overflow-hidden border border-slate-800 shadow-2xl aspect-[3/4] flex flex-col items-center justify-center">
+            
+            <!-- 視訊串流 -->
+            <video id="camera-feed" autoplay playsinline muted class="absolute inset-0 w-full h-full object-cover hidden"></video>
+            
+            <!-- 尚未啟動時的提示畫面 -->
+            <div id="camera-placeholder" class="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-slate-900/80 backdrop-blur-sm">
+                <div class="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-3 text-slate-500 border border-slate-700">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                </div>
+                <p id="cam-status-msg" class="text-xs text-slate-300 mb-4">尚未啟動鏡頭。請點擊下方按鈕授權並開啟光學檢視。</p>
+                <button onclick="initCamera()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-xl text-xs font-bold shadow-lg flex items-center gap-2">
+                    <span>📹</span> 開啟鏡頭
+                </button>
+            </div>
+
+            <!-- 鏡頭上方浮動指標 -->
+            <div class="absolute top-3 left-3 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-md border border-white/10 text-[10px] text-emerald-400 font-mono tracking-wider">
+                10x MACRO FOCUS
+            </div>
+
+            <!-- 底部即時相機控制列 (當鏡頭開啟時顯示) -->
+            <div class="absolute bottom-3 inset-x-3 flex flex-wrap gap-2 justify-center bg-slate-900/70 backdrop-blur-md p-2 rounded-xl border border-white/10">
+                <button onclick="toggleTorch()" id="torch-btn" class="bg-slate-800 hover:bg-slate-700 text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 text-slate-200">
+                    💡 開啟閃光燈
+                </button>
+                <button onclick="openPolarizerModal()" class="bg-slate-800 hover:bg-slate-700 text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 text-slate-200">
+                    🔵 偏光測試教學
+                </button>
+            </div>
+        </div>
+
+        <!-- 影像濾鏡快捷鍵 -->
+        <div class="grid grid-cols-4 gap-2">
+            <button onclick="setFilter('none')" class="bg-slate-900 hover:bg-slate-800 border border-slate-800 py-2 rounded-xl text-xs text-center text-slate-300">原色</button>
+            <button onclick="setFilter('contrast')" class="bg-slate-900 hover:bg-slate-800 border border-slate-800 py-2 rounded-xl text-xs text-center text-slate-300">高對比(包體)</button>
+            <button onclick="setFilter('grayscale')" class="bg-slate-900 hover:bg-slate-800 border border-slate-800 py-2 rounded-xl text-xs text-center text-slate-300">黑白(光澤)</button>
+            <button onclick="setFilter('invert')" class="bg-slate-900 hover:bg-slate-800 border border-slate-800 py-2 rounded-xl text-xs text-center text-slate-300">反轉</button>
+        </div>
+
+        <!-- 螢幕透射光 / 偏光底板工具 -->
+        <div class="bg-gradient-to-r from-slate-900 to-slate-850 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+            <div class="space-y-1">
+                <div class="flex items-center gap-2">
+                    <span class="text-base">📱</span>
+                    <h2 class="text-xs font-bold text-slate-200">螢幕透射光 / 偏光底板模式</h2>
+                </div>
+                <p class="text-[11px] text-slate-400">將寶石放在螢幕光源上，結合偏光片/太陽眼鏡檢測單/雙折射</p>
+            </div>
+            <button onclick="toggleWhiteScreen()" class="bg-blue-600 hover:bg-blue-500 text-white px-3.5 py-2 rounded-xl text-xs font-bold shadow whitespace-nowrap">
+                啟動純白底光
+            </button>
+        </div>
+    </main>
+
+    <!-- 底部導覽列 -->
+    <footer class="bg-slate-900 border-t border-slate-800 py-3 px-6 text-center">
+        <div class="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-1"></div>
+        <div class="inline-block w-4 h-4 rounded-full bg-gradient-to-tr from-cyan-400 via-indigo-500 to-pink-500 shadow"></div>
+    </footer>
+
+    <!-- 純白底光全螢幕模式 -->
+    <div id="white-screen-overlay" class="fixed inset-0 bg-white z-50 hidden flex flex-col items-center justify-center p-6">
+        <button onclick="toggleWhiteScreen()" class="absolute top-6 right-6 bg-slate-900 text-white px-4 py-2 rounded-full text-xs font-bold shadow-2xl">
+            關閉白光模式 ✕
+        </button>
+        <div class="text-slate-800 text-center space-y-2 pointer-events-none">
+            <p class="text-lg font-bold">已切換為最大亮度純白光源</p>
+            <p class="text-xs text-slate-600">請將寶石置於螢幕上方，配合偏光鏡觀察光學反應</p>
+        </div>
+    </div>
+
+    <!-- JavaScript 邏輯 -->
+    <script>
+        let currentStream = null;
+        let track = null;
+        let torchOn = false;
+
+        const videoElem = document.getElementById('camera-feed');
+        const placeholderElem = document.getElementById('camera-placeholder');
+        const statusMsg = document.getElementById('cam-status-msg');
+        const camBtnText = document.getElementById('cam-btn-text');
+
+        async function initCamera() {
+            statusMsg.innerText = "正在請求相機權限...";
+            
+            // 檢查瀏覽器是否支援 mediaDevices
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                statusMsg.innerText = "您的瀏覽器不支援相機存取功能，請確認是否使用 HTTPS 安全連線。";
+                alert("錯誤：瀏覽器不支援相機 API，或未在 HTTPS 安全環境下執行。");
+                return;
+            }
+
+            try {
+                // 優先請求後置微距/廣角鏡頭
+                const constraints = {
+                    video: {
+                        facingMode: { ideal: "environment" },
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    }
+                };
+
+                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                videoElem.srcObject = currentStream;
+                videoElem.classList.remove('hidden');
+                placeholderElem.classList.add('hidden');
+                camBtnText.innerText = "關閉鏡頭";
+                
+                // 綁定按鈕切換行為
+                document.getElementById('btn-toggle-camera').onclick = stopCamera;
+
+                // 取得視訊軌道以支援閃光燈
+                track = currentStream.getVideoTracks()[0];
+
+            } catch (err) {
+                console.error("相機啟動失敗:", err);
+                statusMsg.innerText = "無法啟動鏡頭：請確認已授權相機權限，且網頁運行於 HTTPS 環境。";
+                alert("無法啟動相機。\n原因：" + err.message + "\n\n提示：請確保網址是 https:// 開頭，且已授權瀏覽器使用相機。");
+            }
+        }
+
+        function stopCamera() {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+                currentStream = null;
+            }
+            videoElem.classList.add('hidden');
+            placeholderElem.classList.remove('hidden');
+            camBtnText.innerText = "開啟鏡頭";
+            document.getElementById('btn-toggle-camera').onclick = initCamera;
+            torchOn = false;
+            document.getElementById('torch-btn').innerText = "💡 開啟閃光燈";
+        }
+
+        // 綁定初始按鈕事件
+        document.getElementById('btn-toggle-camera').onclick = initCamera;
+
+        async function toggleTorch() {
+            if (!track) {
+                alert("請先開啟鏡頭才能控制閃光燈！");
+                return;
+            }
+            try {
+                torchOn = !torchOn;
+                await track.applyConstraints({
+                    advanced: [{ torch: torchOn }]
+                });
+                document.getElementById('torch-btn').innerText = torchOn ? "💡 關閉閃光燈" : "💡 開啟閃光燈";
+                document.getElementById('torch-btn').classList.toggle('bg-emerald-900', torchOn);
+            } catch (err) {
+                console.warn("此裝置或瀏覽器不支援閃光燈控制", err);
+                alert("此行動裝置或瀏覽器不支援透過網頁控制閃光燈。");
+                torchOn = !torchOn;
+            }
+        }
+
+        function setFilter(type) {
+            videoElem.className = "absolute inset-0 w-full h-full object-cover";
+            if (type === 'grayscale') videoElem.classList.add('filter-grayscale');
+            if (type === 'contrast') videoElem.classList.add('filter-contrast');
+            if (type === 'invert') videoElem.classList.add('filter-invert');
+        }
+
+        function toggleWhiteScreen() {
+            const overlay = document.getElementById('white-screen-overlay');
+            overlay.classList.toggle('hidden');
+        }
+
+        function openFilterModal() {
+            alert("篩選資料庫包含：紅寶石、藍寶石、綠寶石(祖母綠)、玉、尖晶石、石榴石、海藍寶、長石、琥珀、太陽石、月亮石、土耳其石、青金石（藍鐵青）。");
+        }
+
+        function openPolarizerModal() {
+            alert("【偏光鏡測試教學】\n1. 點擊下方『啟動純白底光』將手機螢幕轉為白光源。\n2. 將寶石置於螢幕上。\n3. 戴上偏光太陽眼鏡或將另一片偏光片置於寶石上方並旋轉 360 度。\n4. 若轉動時明暗變化 4 次則為雙折射（如紅寶石）；若保持全暗或全亮則為單折射（如尖晶石）。");
+        }
+    </script>
+</body>
+</html>
