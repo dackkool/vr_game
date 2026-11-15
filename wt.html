@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AiLink 自製版 - 人體成分分析</title>
+<style>
+body{font-family:-apple-system,Arial;background:#f5f5f5;margin:0;padding:10px}
+.card{background:#fff;border-radius:12px;padding:15px;margin:10px 0;box-shadow:0 2px 6px #0001}
+.green{color:#fff;background:#00c853;padding:4px 12px;border-radius:4px}
+.orange{color:#fff;background:#ff6d00;padding:4px 12px;border-radius:4px}
+.big{font-size:42px;font-weight:800}
+button{width:100%;padding:14px;background:#00c853;color:#fff;border:0;border-radius:10px;font-size:18px}
+#status{padding:10px;text-align:center;color:#d00}
+</style>
+</head>
+<body>
+
+<div style="background:#00c853;color:#fff;padding:15px;text-align:center;font-size:18px">人體成分分析報告 <div id="time"></div></div>
+
+<div id="status">⚠️ 未連接：請按下面按鈕連接藍牙</div>
+<button id="connectBtn">🔵 連接體脂磅 (AiLink)</button>
+
+<div class="card">
+姓名:<input id="name" value="lc" style="width:60px"> 
+性別:<select id="sex"><option value="男" selected>男</option><option value="女">女</option></select>
+身高:<input id="height" value="178" type="number" style="width:50px">cm
+年齡:<input id="age" value="40" type="number" style="width:40px">
+</div>
+
+<div class="card">
+<div>基礎資料</div>
+<div class="big"><span id="w">80.45</span><small style="font-size:16px">kg</small> <span id="fatTag" class="orange">偏胖</span></div>
+<div>BMI <span id="bmi">25.4</span> <span id="bmiTag" class="orange">偏胖</span></div>
+<div>體脂率 <span id="bodyfat">23.2</span>% <span class="orange">偏高</span></div>
+<div>肌肉率 <span id="muscleRate">56.3</span>% <span class="green">標準</span></div>
+</div>
+
+<div class="card">
+<div>人體成分分析</div>
+<div>脂肪量 <span id="fatKg">18.65kg</span></div>
+<div>水分 <span id="water">56.0%</span></div>
+<div>蛋白量 <span id="proteinKg">13.27kg</span></div>
+<div>骨量 <span id="bone">3.1kg</span></div>
+</div>
+
+<div class="card">
+<div>其它指標</div>
+<div>基礎代謝率 <span id="bmr">1667</span> kcal | 身體年齡 <span id="bodyAge">43</span></div>
+<pre id="raw" style="background:#eee;padding:8px;white-space:pre-wrap">RAW: 等待藍牙...</pre>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+$('time').innerText = new Date().toLocaleString();
+
+// 1. 檢查有無藍牙
+if(!navigator.bluetooth){
+  $('status').innerText = '❌ 你的瀏覽器不支援 Web Bluetooth，請用 Chrome Android / Chrome 電腦版，並用 https 開啟';
+  $('connectBtn').disabled = true;
+}
+
+let device, server;
+$('connectBtn').onclick = async () => {
+  try{
+    $('status').innerText = '🔍 正在搜尋藍牙磅...請踩上磅';
+    device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices:true,
+      optionalServices:['0000fff0-0000-1000-8000-00805f9b34fb','0000180a-0000-1000-8000-00805f9b34fb','battery_service']
+    });
+    device.addEventListener('gattserverdisconnected', ()=>{
+      $('status').innerText = '⚠️ 藍牙已斷線，請再按連接';
+      $('status').style.color='red';
+    });
+    server = await device.gatt.connect();
+    $('status').innerText = '✅ 已連接: '+device.name+' 正在讀取...';
+    $('status').style.color='green';
+
+    // 掃所有 service 搵 notify
+    const services = await server.getPrimaryServices();
+    for(let s of services){
+      const chars = await s.getCharacteristics();
+      for(let c of chars){
+        try{
+          if(c.properties.notify){
+            await c.startNotifications();
+            c.addEventListener('characteristicvaluechanged', onData);
+            $('raw').innerText = '監聽: '+c.uuid+'\n等你上磅...';
+          }
+          if(c.properties.read){
+            // 有啲磅要 read 一下先
+            try{let v=await c.readValue(); if(v) onData({target:{value:v}});}catch(e){}
+          }
+        }catch(e){}
+      }
+    }
+  }catch(e){
+    $('status').innerText = '❌ 未連到：'+e.message+' (記得開藍牙+定位)';
+    $('status').style.color='red';
+  }
+};
+
+function onData(e){
+  let data = e.target.value;
+  if(!data) return;
+  let bytes = new Uint8Array(data.buffer);
+  let hex = [...bytes].map(b=>b.toString(16).padStart(2,'0')).join(' ');
+  $('raw').innerText = 'RAW: '+hex+' len='+bytes.length+'\n'+$('raw').innerText.slice(0,400);
+
+  // AiLink 常見解析： 2-3 byte 重量
+  let weight = 0;
+  if(bytes.length>=4){
+    // 試幾種常見格式
+    if(bytes[0]==0x02 || bytes[0]==0x03){
+      weight = ((bytes[2]<<8 | bytes[3]) /100);
+      if(weight>200) weight = weight/10;
+      if(weight<5 || weight>300) weight = (bytes[1] + bytes[2]/100);
+    } else {
+      weight = (bytes[0] + bytes[1]/100);
+    }
+    if(weight>10 && weight<200){
+      updateReport(weight);
+    }
+  }
+}
+
+function updateReport(w){
+  $('w').innerText = w.toFixed(2);
+  let h = parseFloat($('height').value)/100;
+  let bmi = w/(h*h);
+  $('bmi').innerText = bmi.toFixed(1);
+  // 簡易體脂公式 Deurenberg (冇阻抗時估算，夠你圖入面顯示)
+  let age = parseInt($('age').value);
+  let sex = $('sex').value=='男'?1:0;
+  let bf = (1.20*bmi + 0.23*age -10.8*sex -5.4);
+  $('bodyfat').innerText = bf.toFixed(1);
+  let fatKg = w*bf/100;
+  $('fatKg').innerText = fatKg.toFixed(2)+'kg';
+  let muscle = 56.3; // 固定展示，你有阻抗我再幫你計真
+  $('muscleRate').innerText = muscle;
+  let bmr = 370 + 21.6*(w-fatKg);
+  $('bmr').innerText = Math.round(bmr);
+  $('bodyAge').innerText = Math.round(age + (bmi-22));
+  
+  if(bmi>=24){ $('bmiTag').innerText='偏胖'; $('bmiTag').className='orange'; $('fatTag').innerText='偏胖';}
+  else { $('bmiTag').innerText='標準'; $('bmiTag').className='green'; $('fatTag').innerText='標準';}
+}
+</script>
+</body>
+</html>
