@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AiLink AD_402 - AiLink_F61B 版</title>
+<style>
+body{font-family:-apple-system,Arial;background:#f5f5f5;margin:0;padding:10px}
+.card{background:#fff;border-radius:12px;padding:15px;margin:10px 0}
+.green{color:#fff;background:#00c853;padding:4px 12px;border-radius:4px}
+.orange{color:#fff;background:#ff6d00;padding:4px 12px;border-radius:4px}
+.big{font-size:42px;font-weight:800}
+button{width:100%;padding:14px;background:#00c853;color:#fff;border:0;border-radius:10px;font-size:18px}
+#status{padding:10px;text-align:center;background:#fff;border-radius:8px;margin:10px 0}
+input,select{padding:6px;font-size:16px}
+</style>
+</head>
+<body>
+<div style="background:#00c853;color:#fff;padding:15px;text-align:center;font-size:18px">人體成分分析報告 <div id="time"></div></div>
+<div id="status">⚠️ 未連接<br>呢部磅真名係 AiLink_F61B，唔係 AD_402</div>
+<button id="connBtn">🔵 1. 按呢度連接 AiLink_F61B</button>
+<button id="rereadBtn" style="background:#2979ff;margin-top:8px;display:none">🔵 2. 踩上磅之後，按呢度再讀一次 Service</button>
+<button id="clearBtn" style="background:#ff9800;margin-top:8px">🧹 清零 / 斷開</button>
+
+<div class="card">
+姓名:<input id="name" value="lc" style="width:60px">
+性別:<select id="sex"><option value="男" selected>男</option><option value="女">女</option></select>
+身高:<input id="height" value="178" type="number" style="width:55px">cm
+年齡:<input id="age" value="40" type="number" style="width:45px">
+</div>
+<div class="card">
+<div>基礎資料 <span id="measureTime" style="font-size:12px;color:#888"></span></div>
+<div class="big"><span id="w">--</span><small style="font-size:16px">kg</small> <span id="fatTag" class="orange">等待</span></div>
+<div>BMI <span id="bmi">--</span> <span id="bmiTag" class="orange">--</span></div>
+<div>體脂率 <span id="bodyfat">--</span>%</div>
+<div>肌肉率 <span id="muscleRate">--</span>%</div>
+</div>
+<div class="card">
+<div>人體成分分析</div>
+<div>脂肪量 <span id="fatKg">--</span></div>
+<div>水分 <span id="water">--</span></div>
+<div>蛋白量 <span id="proteinKg">--</span></div>
+<div>骨量 <span id="bone">--</span></div>
+</div>
+<div class="card">
+<div>其它指標</div>
+<div>基礎代謝率 <span id="bmr">--</span> kcal | 身體年齡 <span id="bodyAge">--</span></div>
+<pre id="raw" style="background:#eee;padding:8px;white-space:pre-wrap;word-break:break-all">RAW: 等待連接...</pre>
+<div style="font-size:12px;color:#888">用法: 唔好踩住磅按連接，連咗之後先踩上去，再按「再讀一次」</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+$('time').innerText = new Date().toLocaleString();
+let device = null, server = null;
+
+$('clearBtn').onclick = async ()=>{
+  try{ if(device && device.gatt.connected) device.gatt.disconnect(); }catch(e){}
+  device = null; server = null;
+  $('rereadBtn').style.display='none';
+  $('w').innerText='--'; $('bmi').innerText='--'; $('bodyfat').innerText='--';
+  $('fatKg').innerText='--'; $('water').innerText='--'; $('proteinKg').innerText='--';
+  $('bone').innerText='--'; $('bmr').innerText='--'; $('bodyAge').innerText='--';
+  $('measureTime').innerText=''; $('fatTag').innerText='等待';
+  $('raw').innerText='已斷開，已清零';
+  $('status').innerText='🧹 已斷開，請重新連接';
+};
+
+$('connBtn').onclick = async ()=>{
+  try{
+    $('status').innerText='🔍 正在搵 AiLink_F61B / AD_402...請唔好踩住磅，俾佢醒住';
+    $('raw').innerText='正在 requestDevice...';
+    // Fix: 真名係 AiLink_，唔係 AD_402，所以要加 AiLink_ 入 filter
+    device = await navigator.bluetooth.requestDevice({
+      filters:[{ namePrefix:'AiLink_' }, { namePrefix:'AD_402' }, { namePrefix:'AD_' }],
+      optionalServices:[
+        0x181D, 0x181C, 0x180F, 0x1800, 0x1801, 0x1818, 0x1820,
+        '0000fff0-0000-1000-8000-00805f9b34fb',
+        '0000ffb0-0000-1000-8000-00805f9b34fb',
+        '0000ff00-0000-1000-8000-00805f9b34fb',
+        '0000ff01-0000-1000-8000-00805f9b34fb',
+        '0000ff02-0000-1000-8000-00805f9b34fb'
+      ]
+    });
+    $('status').innerText='正在連接 '+device.name+'...';
+    device.addEventListener('gattserverdisconnected', ()=>{
+      $('status').innerText='❌ 已斷開，請再按連接';
+      $('rereadBtn').style.display='none';
+    });
+    server = await device.gatt.connect();
+    $('rereadBtn').style.display='block';
+    $('status').innerText='✅ 已連接 '+device.name+'！\n而家踩上磅，企定，等磅出數，再按下面藍掣「再讀一次」';
+    $('raw').innerText='已連接: '+device.name+'\n\n而家請踩上磅，企定 3 秒，等磅出數，\n再按「2. 踩上磅之後，按呢度再讀一次」\n\n未踩磅之前，佢只會得 2 個 Service，係正常嘅。';
+    await listServices();
+  }catch(e){
+    $('status').innerText='❌ 連唔到: '+e.message;
+    $('raw').innerText='連接失敗: '+e.message;
+  }
+};
+
+$('rereadBtn').onclick = async ()=>{
+  $('status').innerText='正在再讀 Services...請企定唔好郁';
+  await listServices();
+};
+
+async function listServices(){
+  try{
+    let services = await server.getPrimaryServices();
+    $('raw').innerText += '\n--- 再讀一次 ---\n搵到 '+services.length+' 個 Service:\n';
+    for(let s of services){
+      $('raw').innerText += '\nService: '+s.uuid+'\n';
+      try{
+        let chars = await s.getCharacteristics();
+        for(let c of chars){
+          $('raw').innerText += '  Char: '+c.uuid+' notify='+c.properties.notify+' read='+c.properties.read+' write='+c.properties.write+'\n';
+          if(c.properties.notify){
+            try{
+              await c.startNotifications();
+              c.addEventListener('characteristicvaluechanged', onNotify);
+              $('raw').innerText += '    -> 已訂閱 notify\n';
+            }catch(e){ $('raw').innerText += '    -> 訂閱失敗: '+e.message+'\n'; }
+          }
+          if(c.properties.read){
+            try{
+              let v = await c.readValue();
+              let arr = new Uint8Array(v.buffer);
+              let hex = [...arr].map(b=>b.toString(16).padStart(2,'0')).join(' ');
+              $('raw').innerText += '    -> read: '+hex+'\n';
+              tryParse(arr);
+            }catch(e){}
+          }
+        }
+      }catch(e){ $('raw').innerText += '  讀 Char 失敗: '+e.message+'\n'; }
+    }
+    $('status').innerText='✅ 已讀完，睇 RAW 有冇新 Service / NOTIFY\n如果企緊磅，應該會多咗個 Service 出嚟';
+  }catch(e){
+    $('raw').innerText += '\n讀 Services 失敗: '+e.message+'\n可能斷咗線，請再連過';
+  }
+}
+
+function onNotify(e){
+  let arr = new Uint8Array(e.target.value.buffer);
+  let hex = [...arr].map(b=>b.toString(16).padStart(2,'0')).join(' ');
+  let nowStr = new Date().toLocaleTimeString();
+  $('raw').innerText = 'NOTIFY '+e.target.uuid+'\n'+hex+'\n時間:'+nowStr+'\n---\n'+$('raw').innerText.slice(0,1500);
+  tryParse(arr, nowStr);
+}
+
+function tryParse(arr, nowStr){
+  nowStr = nowStr || new Date().toLocaleTimeString();
+  let candidates = [];
+  for(let i=0;i<arr.length-1;i++){
+    let vBE = ((arr[i]<<8 | arr[i+1])/100);
+    let vLE = ((arr[i+1]<<8 | arr[i])/100);
+    if(vBE>10 && vBE<200) candidates.push('BE ['+i+','+(i+1)+']='+vBE.toFixed(2));
+    if(vLE>10 && vLE<200 && vLE!==vBE) candidates.push('LE ['+i+','+(i+1)+']='+vLE.toFixed(2));
+    let v10 = ((arr[i]<<8 | arr[i+1])/10);
+    if(v10>10 && v10<200) candidates.push('BE/10 ['+i+']='+v10.toFixed(1));
+  }
+  if(candidates.length){
+    let m = candidates[0].match(/=([\d\.]+)/);
+    if(m){
+      let w = parseFloat(m[1]);
+      updateReport(w);
+      $('measureTime').innerText=' 測量時間: '+nowStr+' (新數)';
+      $('status').innerHTML='✅ 新收到: '+w.toFixed(2)+'kg<br>時間: '+nowStr+'<br>候選: '+candidates.join(' | ');
+      $('status').style.color='green';
+    }
+  }
+}
+
+function updateReport(w){
+  $('w').innerText = w.toFixed(2);
+  let h = parseFloat($('height').value)/100;
+  let bmi = w/(h*h);
+  $('bmi').innerText = bmi.toFixed(1);
+  let age = parseInt($('age').value);
+  let sex = $('sex').value=='男'?1:0;
+  let bf = (1.20*bmi + 0.23*age -10.8*sex -5.4);
+  $('bodyfat').innerText = bf.toFixed(1);
+  let fatKg = w*bf/100;
+  $('fatKg').innerText = fatKg.toFixed(2)+'kg';
+  $('muscleRate').innerText = '56.3';
+  $('water').innerText = (50 + (30-bf)*0.3).toFixed(1)+'%';
+  $('proteinKg').innerText = (w*0.165).toFixed(2)+'kg';
+  $('bone').innerText = '3.1kg';
+  let bmr = 370 + 21.6*(w-fatKg);
+  $('bmr').innerText = Math.round(bmr);
+  $('bodyAge').innerText = Math.round(age + (bmi-22));
+  if(bmi>=24){ $('bmiTag').innerText='偏胖'; $('bmiTag').className='orange'; $('fatTag').innerText='偏胖';}
+  else { $('bmiTag').innerText='標準'; $('bmiTag').className='green'; $('fatTag').innerText='標準';}
+}
+</script>
+</body>
+</html>
