@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AiLink 廣播版 - Fix 假重量</title>
+<style>
+body{font-family:-apple-system,Arial;background:#f5f5f5;margin:0;padding:10px}
+.card{background:#fff;border-radius:12px;padding:15px;margin:10px 0}
+.green{color:#fff;background:#00c853;padding:4px 12px;border-radius:4px}
+.orange{color:#fff;background:#ff6d00;padding:4px 12px;border-radius:4px}
+.big{font-size:42px;font-weight:800}
+button{width:100%;padding:14px;background:#00c853;color:#fff;border:0;border-radius:10px;font-size:18px}
+#status{padding:10px;text-align:center;background:#fff;border-radius:8px;margin:10px 0}
+input,select{padding:6px;font-size:16px}
+</style>
+</head>
+<body>
+<div style="background:#00c853;color:#fff;padding:15px;text-align:center;font-size:18px">人體成分分析報告 <div id="time"></div></div>
+<div id="status">⚠️ 未掃描<br>先按掃描，開咗先好踩上磅</div>
+<button id="scanBtn">🔵 1. 先按呢度開始聽 (落咗磅先按)</button>
+<button id="clearBtn" style="background:#ff9800;margin-top:8px">🧹 清零</button>
+
+<div class="card">
+姓名:<input id="name" value="lc" style="width:60px">
+性別:<select id="sex"><option value="男" selected>男</option><option value="女">女</option></select>
+身高:<input id="height" value="178" type="number" style="width:55px">cm
+年齡:<input id="age" value="40" type="number" style="width:45px">
+</div>
+<div class="card">
+<div>基礎資料 <span id="measureTime" style="font-size:12px;color:#888"></span></div>
+<div class="big"><span id="w">--</span><small style="font-size:16px">kg</small> <span id="fatTag" class="orange">等待</span></div>
+<div>BMI <span id="bmi">--</span> <span id="bmiTag" class="orange">--</span></div>
+<div>體脂率 <span id="bodyfat">--</span>%</div>
+<div>肌肉率 <span id="muscleRate">--</span>%</div>
+</div>
+<div class="card">
+<div>人體成分分析</div>
+<div>脂肪量 <span id="fatKg">--</span></div>
+<div>水分 <span id="water">--</span></div>
+<div>蛋白量 <span id="proteinKg">--</span></div>
+<div>骨量 <span id="bone">--</span></div>
+</div>
+<div class="card">
+<div>其它指標</div>
+<div>基礎代謝率 <span id="bmr">--</span> kcal | 身體年齡 <span id="bodyAge">--</span></div>
+<pre id="raw" style="background:#eee;padding:8px;white-space:pre-wrap;word-break:break-all">RAW: 等待掃描...</pre>
+<div style="font-size:12px;color:#888">用法: 1. 落磅 2. 按掃描 3. 踩上磅企定 10 秒 4. 睇 RAW 有冇變咗</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+$('time').innerText = new Date().toLocaleString();
+let scan = null, advCount = 0, idleBytes = null, lastChangedBytes = null, stableCount = 0;
+
+$('clearBtn').onclick = ()=>{
+  try{ if(scan) scan.stop(); }catch(e){}
+  scan = null; advCount = 0; idleBytes = null; lastChangedBytes = null; stableCount = 0;
+  $('w').innerText='--'; $('bmi').innerText='--'; $('bodyfat').innerText='--';
+  $('fatKg').innerText='--'; $('water').innerText='--'; $('proteinKg').innerText='--';
+  $('bone').innerText='--'; $('bmr').innerText='--'; $('bodyAge').innerText='--';
+  $('measureTime').innerText=''; $('fatTag').innerText='等待';
+  $('raw').innerText='已清零';
+  $('status').innerText='🧹 已清零，請再按掃描';
+};
+
+$('scanBtn').onclick = async ()=>{
+  try{
+    if(scan){ try{ scan.stop(); }catch(e){} }
+    advCount = 0; idleBytes = null; lastChangedBytes = null; stableCount = 0;
+    $('status').innerHTML='🔍 正在聽...<br>而家落磅，唔好踩住<br>等 2 秒，之後先踩上去企定 10 秒';
+    $('status').style.color='green';
+    scan = await navigator.bluetooth.requestLEScan({
+      filters:[{ namePrefix:'AD_' }, { namePrefix:'AiLink_' }],
+      keepRepeatedDevices:true
+    });
+    if(!window._advAdded){
+      navigator.bluetooth.addEventListener('advertisementreceived', onAdv);
+      window._advAdded = true;
+    }
+    $('raw').innerText='已開始聽...\n第 1 步: 落磅，等 2 秒\n第 2 步: 踩上磅，企定 10 秒唔好郁\n等緊你踩上去...';
+  }catch(e){
+    $('status').innerText='❌ 掃唔到: '+e.message;
+  }
+};
+
+function onAdv(e){
+  if(!e.device.name) return;
+  if(!e.device.name.includes('AD_') && !e.device.name.includes('AiLink')) return;
+  let allBytes = [];
+  e.manufacturerData.forEach((v,k)=>{
+    let arr = [...new Uint8Array(v.buffer)];
+    allBytes = allBytes.concat(arr);
+  });
+  e.serviceData.forEach((v,k)=>{
+    let arr = [...new Uint8Array(v.buffer)];
+    allBytes = allBytes.concat(arr);
+  });
+  if(allBytes.length===0) return;
+  advCount++;
+  let nowStr = new Date().toLocaleTimeString();
+  let bytesStr = allBytes.map((b,i)=>i+':'+b.toString(16).padStart(2,'0')).join(' ');
+
+  // FIX 1: 頭 2 個包一定係閒置包，唔好計。直接當係閒置，記低佢就返出去
+  if(advCount<=2){
+    idleBytes = [...allBytes];
+    $('status').innerHTML='🔍 正在聽...收到 '+advCount+' 次<br>已記低閒置包: '+allBytes.map(b=>b.toString(16).padStart(2,'0')).join(' ')+'<br>請踩上磅，企定唔好郁';
+    $('raw').innerText='已記低閒置包 (唔會計佢做體重):\n'+bytesStr+'\n\n等緊你踩上去，個包變咗先會計...';
+    return;
+  }
+
+  // FIX 2: 同閒置包一樣 = 未踩 / 仲瞓緊，唔好計
+  let isSameAsIdle = allBytes.length===idleBytes.length && allBytes.every((b,i)=>b===idleBytes[i]);
+  if(isSameAsIdle){
+    stableCount = 0; lastChangedBytes = null;
+    $('status').innerHTML='🔍 仲聽緊...收到 '+advCount+' 次<br>仲係閒置包，未變<br>請踩上磅，企定 10 秒';
+    return;
+  }
+
+  // 真係變咗！計下變咗邊度
+  let changed = [];
+  for(let i=0;i<allBytes.length;i++) if(allBytes[i]!==idleBytes[i]) changed.push(i);
+
+  // FIX 3: 要連續 2 次都係同一個變咗嘅包，先當係穩定咗，唔好跳嚟跳去
+  let sameAsLast = lastChangedBytes && lastChangedBytes.length===allBytes.length && lastChangedBytes.every((b,i)=>b===allBytes[i]);
+  if(sameAsLast) stableCount++;
+  else { stableCount = 1; lastChangedBytes = [...allBytes]; }
+
+  if(stableCount<2){
+    $('status').innerHTML='🎉 收到變咗嘅包！等緊佢穩定... ('+stableCount+'/2)<br>變咗位置: '+changed.join(',');
+    $('raw').innerText='收到變咗嘅包，等緊第 2 次確認...\n'+bytesStr+'\n變咗位置: '+changed.join(',')+'\n時間:'+nowStr;
+    return;
+  }
+
+  // 已經穩定，計重量
+  // AiLink 呢部，體重好大機會喺 [2][3] 或者 [3][4]，唔係 [0][1]
+  // 我哋將所有可能都列出嚟，等你對返磅上面顯示嘅數
+  let candidates = [];
+  for(let i=0;i<allBytes.length-1;i++){
+    let vBE = ((allBytes[i]<<8 | allBytes[i+1])/100);
+    let vLE = ((allBytes[i+1]<<8 | allBytes[i])/100);
+    if(vBE>10 && vBE<200) candidates.push('['+i+'] BE='+vBE.toFixed(2));
+    if(vLE>10 && vLE<200 && vLE!==vBE) candidates.push('['+i+'] LE='+vLE.toFixed(2));
+  }
+  // 優先用變咗嘅位置嚟計
+  let weight = 0;
+  for(let k=changed.length-1;k>=0;k--){
+    let i = changed[k];
+    if(i+1<allBytes.length){
+      let vBE = ((allBytes[i]<<8 | allBytes[i+1])/100);
+      let vLE = ((allBytes[i+1]<<8 | allBytes[i])/100);
+      if(vBE>10 && vBE<200){ weight=vBE; break; }
+      if(vLE>10 && vLE<200){ weight=vLE; break; }
+    }
+  }
+
+  $('raw').innerText = '🎉 變咗！已穩定 ADV #'+advCount+' '+e.device.name+'\n'+bytesStr+'\n變咗位置: '+changed.join(',')+'\n閒置包: '+idleBytes.map(b=>b.toString(16).padStart(2,'0')).join(' ')+'\n時間:'+nowStr+'\n候選重量: '+candidates.join(' | ')+'\n計到: '+(weight?weight.toFixed(2)+'kg':'未計到，請對返磅面顯示')+'\n---\n'+$('raw').innerText.slice(0,1200);
+
+  if(weight>10 && weight<200){
+    updateReport(weight);
+    $('measureTime').innerText=' 測量時間: '+nowStr+' (新數)';
+    $('status').innerHTML='✅ 新收到: '+weight.toFixed(2)+'kg<br>時間: '+nowStr+'<br>請對返磅面顯示係咪一樣？';
+    $('status').style.color='green';
+  } else {
+    $('status').innerHTML='🎉 收到變咗嘅包！但未計到<br>將 RAW 影俾我 + 話我知磅面顯示幾多 kg';
+  }
+}
+
+function updateReport(w){
+  $('w').innerText = w.toFixed(2);
+  let h = parseFloat($('height').value)/100;
+  let bmi = w/(h*h);
+  $('bmi').innerText = bmi.toFixed(1);
+  let age = parseInt($('age').value);
+  let sex = $('sex').value=='男'?1:0;
+  let bf = (1.20*bmi + 0.23*age -10.8*sex -5.4);
+  $('bodyfat').innerText = bf.toFixed(1);
+  let fatKg = w*bf/100;
+  $('fatKg').innerText = fatKg.toFixed(2)+'kg';
+  $('muscleRate').innerText = '56.3';
+  $('water').innerText = (50 + (30-bf)*0.3).toFixed(1)+'%';
+  $('proteinKg').innerText = (w*0.165).toFixed(2)+'kg';
+  $('bone').innerText = '3.1kg';
+  let bmr = 370 + 21.6*(w-fatKg);
+  $('bmr').innerText = Math.round(bmr);
+  $('bodyAge').innerText = Math.round(age + (bmi-22));
+  if(bmi>=24){ $('bmiTag').innerText='偏胖'; $('bmiTag').className='orange'; $('fatTag').innerText='偏胖';}
+  else { $('bmiTag').innerText='標準'; $('bmiTag').className='green'; $('fatTag').innerText='標準';}
+}
+</script>
+</body>
+</html>
