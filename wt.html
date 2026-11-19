@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>測試 - 搵晒所有藍牙</title>
+<style>body{font-family:Arial;padding:15px}button{width:100%;padding:16px;background:#00c853;color:#fff;border:0;border-radius:10px;font-size:18px}pre{background:#eee;padding:10px;white-space:pre-wrap;word-break:break-all}</style>
+</head>
+<body>
+<h3>第一步: 先去系統藍牙取消配對 AD_402<br>第二步: 返嚟呢度按下面個掣</h3>
+<button id="btn">🔵 按呢度，睇下個 list 有冇 AD_402</button>
+<pre id="log">等緊你按...
+
+如果系統藍牙仲配對緊 AD_402，呢度係唔會出佢。
+一定要先去 設定 -> 藍牙 -> 取消配對</pre>
+<script>
+document.getElementById('btn').onclick = async ()=>{
+  let log = document.getElementById('log');
+  try{
+    log.innerText = '正在搵...踩住磅唔好落嚟...';
+    let device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: [0x181D, 0x180F, 0x1800, 0x1801, '0000fff0-0000-1000-8000-00805f9b34fb']
+    });
+    log.innerText = '✅ 搵到！\n名: ' + device.name + '\nID: ' + device.id;
+    let server = await device.gatt.connect();
+    log.innerText += '\n✅ 已連接！\n正在讀 Services...';
+    let services = await server.getPrimaryServices();
+    log.innerText += '\n搵到 ' + services.length + ' 個 Service:\n';
+    for(let s of services) log.innerText += s.uuid + '\n';
+    for(let s of services){
+      try{
+        let chars = await s.getCharacteristics();
+        for(let c of chars) log.innerText += ' Char: '+c.uuid+' notify='+c.properties.notify+' read='+c.properties.read+'\n';
+      }catch(e){}
+    }
+  }catch(e){
+    log.innerText = '❌ 失敗: ' + e.message + '\n\n1. 你有冇去系統藍牙取消配對？\n2. 你有冇踩住磅？\n3. AiLink App 有冇完全閂晒？';
+  }
+};
+</script>
+</body>
+</html>
