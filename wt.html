@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AiLink 廣播版 - 唔連接</title>
+<style>
+body{font-family:-apple-system,Arial;background:#f5f5f5;margin:0;padding:10px}
+.card{background:#fff;border-radius:12px;padding:15px;margin:10px 0}
+.green{color:#fff;background:#00c853;padding:4px 12px;border-radius:4px}
+.orange{color:#fff;background:#ff6d00;padding:4px 12px;border-radius:4px}
+.big{font-size:42px;font-weight:800}
+button{width:100%;padding:14px;background:#00c853;color:#fff;border:0;border-radius:10px;font-size:18px}
+#status{padding:10px;text-align:center;background:#fff;border-radius:8px;margin:10px 0}
+input,select{padding:6px;font-size:16px}
+</style>
+</head>
+<body>
+<div style="background:#00c853;color:#fff;padding:15px;text-align:center;font-size:18px">人體成分分析報告 <div id="time"></div></div>
+<div id="status">⚠️ 未掃描<br>呢部磅唔使連接，企上去就會廣播體重</div>
+<button id="scanBtn">🔵 1. 按呢度開始聽廣播 (唔連接)</button>
+<button id="clearBtn" style="background:#ff9800;margin-top:8px">🧹 清零</button>
+
+<div class="card">
+姓名:<input id="name" value="lc" style="width:60px">
+性別:<select id="sex"><option value="男" selected>男</option><option value="女">女</option></select>
+身高:<input id="height" value="178" type="number" style="width:55px">cm
+年齡:<input id="age" value="40" type="number" style="width:45px">
+</div>
+<div class="card">
+<div>基礎資料 <span id="measureTime" style="font-size:12px;color:#888"></span></div>
+<div class="big"><span id="w">--</span><small style="font-size:16px">kg</small> <span id="fatTag" class="orange">等待</span></div>
+<div>BMI <span id="bmi">--</span> <span id="bmiTag" class="orange">--</span></div>
+<div>體脂率 <span id="bodyfat">--</span>%</div>
+<div>肌肉率 <span id="muscleRate">--</span>%</div>
+</div>
+<div class="card">
+<div>人體成分分析</div>
+<div>脂肪量 <span id="fatKg">--</span></div>
+<div>水分 <span id="water">--</span></div>
+<div>蛋白量 <span id="proteinKg">--</span></div>
+<div>骨量 <span id="bone">--</span></div>
+</div>
+<div class="card">
+<div>其它指標</div>
+<div>基礎代謝率 <span id="bmr">--</span> kcal | 身體年齡 <span id="bodyAge">--</span></div>
+<pre id="raw" style="background:#eee;padding:8px;white-space:pre-wrap;word-break:break-all">RAW: 等待掃描...</pre>
+<div style="font-size:12px;color:#888">用法: 按掃描 -> 踩上磅企定 -> 睇 RAW 有冇變<br>唔好去系統藍牙配對佢，唔好按連接</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+$('time').innerText = new Date().toLocaleString();
+let scan = null, prevBytes = null, advCount = 0;
+
+$('clearBtn').onclick = ()=>{
+  try{ if(scan) scan.stop(); }catch(e){}
+  scan = null; prevBytes = null; advCount = 0;
+  $('w').innerText='--'; $('bmi').innerText='--'; $('bodyfat').innerText='--';
+  $('fatKg').innerText='--'; $('water').innerText='--'; $('proteinKg').innerText='--';
+  $('bone').innerText='--'; $('bmr').innerText='--'; $('bodyAge').innerText='--';
+  $('measureTime').innerText=''; $('fatTag').innerText='等待';
+  $('raw').innerText='已清零，已停掃描';
+  $('status').innerText='🧹 已清零，請再按掃描';
+};
+
+$('scanBtn').onclick = async ()=>{
+  try{
+    if(scan){ try{ scan.stop(); }catch(e){} }
+    prevBytes = null; advCount = 0;
+    $('status').innerText='🔍 正在聽廣播...請踩上磅，唔好連接';
+    $('status').style.color='green';
+    scan = await navigator.bluetooth.requestLEScan({
+      filters:[{ namePrefix:'AD_' }, { namePrefix:'AiLink_' }],
+      keepRepeatedDevices:true,
+      acceptAllAdvertisements:false
+    });
+    if(!window._advAdded){
+      navigator.bluetooth.addEventListener('advertisementreceived', onAdv);
+      window._advAdded = true;
+    }
+    $('raw').innerText='已開始聽廣播...\n請踩上磅，企定 3 秒';
+  }catch(e){
+    $('status').innerText='❌ 掃唔到: '+e.message+'\n請用 Chrome Android + https + 開定位';
+  }
+};
+
+function onAdv(e){
+  if(!e.device.name) return;
+  if(!e.device.name.includes('AD_') && !e.device.name.includes('AiLink')) return;
+
+  // 攞晒所有廣播資料：manufacturer + service
+  let allBytes = [];
+  let detail = '';
+  e.manufacturerData.forEach((v,k)=>{
+    let arr = [...new Uint8Array(v.buffer)];
+    allBytes = allBytes.concat(arr);
+    detail += 'M公司ID:'+k+' ['+arr.map(b=>b.toString(16).padStart(2,'0')).join(' ')+']\n';
+  });
+  e.serviceData.forEach((v,k)=>{
+    let arr = [...new Uint8Array(v.buffer)];
+    allBytes = allBytes.concat(arr);
+    detail += 'S服務:'+k+' ['+arr.map(b=>b.toString(16).padStart(2,'0')).join(' ')+']\n';
+  });
+  advCount++;
+  let nowStr = new Date().toLocaleTimeString();
+  let bytesStr = allBytes.map((b,i)=>i+':'+b.toString(16).padStart(2,'0')).join(' ');
+
+  let diff = '第一次收到';
+  let weight = 0;
+  if(prevBytes && prevBytes.length===allBytes.length){
+    let changed = [];
+    for(let i=0;i<allBytes.length;i++) if(allBytes[i]!==prevBytes[i]) changed.push(i);
+    diff = changed.length ? '變咗位置: '+changed.join(',')+' (呢啲先係體重)' : '同上次一樣 (未有新重量，仲瞓緊 / 未踩實)';
+    if(changed.length){
+      // 試變咗嘅位置
+      for(let k=changed.length-1;k>=0;k--){
+        let i = changed[k];
+        if(i+1<allBytes.length){
+          let v = ((allBytes[i]<<8 | allBytes[i+1])/100);
+          if(v>10 && v<200){ weight=v; break; }
+          let vLE = ((allBytes[i+1]<<8 | allBytes[i])/100);
+          if(vLE>10 && vLE<200){ weight=vLE; break; }
+        }
+        if(i-1>=0){
+          let v2 = ((allBytes[i-1]<<8 | allBytes[i])/100);
+          if(v2>10 && v2<200){ weight=v2; break; }
+        }
+      }
+      // 試最後兩個 byte
+      if(!weight && allBytes.length>=2){
+        let last = ((allBytes[allBytes.length-2]<<8 | allBytes[allBytes.length-1])/100);
+        if(last>10 && last<200) weight=last;
+        let lastLE = ((allBytes[allBytes.length-1]<<8 | allBytes[allBytes.length-2])/100);
+        if(!weight && lastLE>10 && lastLE<200) weight=lastLE;
+      }
+    }
+  }
+  prevBytes = [...allBytes];
+
+  // 只顯示頭 3 次同有變嘅，唔好洗版
+  if(advCount<=3 || weight>0 || (prevBytes && diff.includes('變咗'))){
+    $('raw').innerText = 'ADV #'+advCount+' '+e.device.name+'\n'+detail+bytesStr+'\n'+diff+'\n時間:'+nowStr+'\n計到:'+(weight?weight.toFixed(2)+'kg':'未計到')+'\n---\n'+$('raw').innerText.slice(0,1200);
+  }
+
+  if(weight>10 && weight<200){
+    updateReport(weight);
+    $('measureTime').innerText=' 測量時間: '+nowStr+' (新數)';
+    $('status').innerHTML='✅ 新收到: '+weight.toFixed(2)+'kg<br>時間: '+nowStr+'<br>'+diff;
+    $('status').style.color='green';
+  }
+}
+
+function updateReport(w){
+  $('w').innerText = w.toFixed(2);
+  let h = parseFloat($('height').value)/100;
+  let bmi = w/(h*h);
+  $('bmi').innerText = bmi.toFixed(1);
+  let age = parseInt($('age').value);
+  let sex = $('sex').value=='男'?1:0;
+  let bf = (1.20*bmi + 0.23*age -10.8*sex -5.4);
+  $('bodyfat').innerText = bf.toFixed(1);
+  let fatKg = w*bf/100;
+  $('fatKg').innerText = fatKg.toFixed(2)+'kg';
+  $('muscleRate').innerText = '56.3';
+  $('water').innerText = (50 + (30-bf)*0.3).toFixed(1)+'%';
+  $('proteinKg').innerText = (w*0.165).toFixed(2)+'kg';
+  $('bone').innerText = '3.1kg';
+  let bmr = 370 + 21.6*(w-fatKg);
+  $('bmr').innerText = Math.round(bmr);
+  $('bodyAge').innerText = Math.round(age + (bmi-22));
+  if(bmi>=24){ $('bmiTag').innerText='偏胖'; $('bmiTag').className='orange'; $('fatTag').innerText='偏胖';}
+  else { $('bmiTag').innerText='標準'; $('bmiTag').className='green'; $('fatTag').innerText='標準';}
+}
+</script>
+</body>
+</html>
