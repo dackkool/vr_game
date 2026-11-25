@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>JX-180 握力計 - 完全版 v3</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang HK","Microsoft JhengHei",sans-serif;background:#0f1115;color:#fff;padding:16px;padding-bottom:120px}
+  h1{font-size:20px;margin:4px 0 2px}
+  .sub{color:#9aa3b2;font-size:13px;margin-bottom:14px}
+  .card{background:#1a1e27;border:1px solid #2a2f3d;border-radius:16px;padding:16px;margin-bottom:12px}
+  .row{display:flex;gap:10px}
+  .btn{flex:1;border:0;border-radius:12px;padding:14px 10px;font-size:16px;font-weight:700;cursor:pointer;color:#fff}
+  .btn-blue{background:#2563eb}.btn-green{background:#16a34a}.btn-red{background:#dc2626}.btn-gray{background:#374151}.btn:disabled{opacity:.4}
+  .btn-small{padding:10px;font-size:14px}
+  .status{display:flex;justify-content:space-between;align-items:center;font-size:14px}
+  .dot{width:10px;height:10px;border-radius:50%;background:#ef4444;display:inline-block;margin-right:6px}
+  .dot.on{background:#22c55e;box-shadow:0 0 10px #22c55e}
+  .big{text-align:center;padding:10px 0 4px}
+  .big .label{color:#9aa3b2;font-size:14px}
+  .big .value{font-size:84px;font-weight:900;line-height:1;letter-spacing:-2px}
+  .big .unit{font-size:22px;color:#9aa3b2}
+  .stats{display:flex;gap:10px;margin-top:14px}
+  .stat{flex:1;background:#11141b;border-radius:12px;padding:12px;text-align:center}
+  .stat .k{color:#9aa3b2;font-size:12px}
+  .stat .v{font-size:26px;font-weight:800;margin-top:2px}
+  .bar-wrap{height:14px;background:#11141b;border-radius:99px;overflow:hidden;margin-top:14px}
+  .bar{height:100%;width:0%;background:linear-gradient(90deg,#22c55e,#eab308,#ef4444);transition:width .15s}
+  .scale{display:flex;justify-content:space-between;font-size:11px;color:#9aa3b2;margin-top:4px}
+  .log{font-family:monospace;font-size:12px;line-height:1.6;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+  .log .ok{color:#86efac}.log .err{color:#fca5a5}.log .mut{color:#9aa3b2}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:9px 6px;border-bottom:1px solid #2a2f3d;text-align:left}
+  th{color:#9aa3b2;font-size:12px}
+  input{width:100%;background:#11141b;border:1px solid #2a2f3d;color:#fff;border-radius:10px;padding:11px;font-size:15px}
+  label{font-size:13px;color:#9aa3b2;display:block;margin:10px 0 6px}
+  .pill{display:inline-block;background:#11141b;border:1px solid #2a2f3d;border-radius:99px;padding:5px 10px;font-size:12px;margin-right:6px}
+  .footer{position:fixed;left:0;right:0;bottom:0;background:#14171f;border-top:1px solid #2a2f3d;padding:12px 16px;display:flex;gap:10px}
+</style>
+</head>
+<body>
+<h1>💪 JX-180 握力計</h1>
+<div class="sub">KC4101 · v3 已修 9a/9b UUID · FFE0 / FFE1 / FFE2</div>
+<div class="card">
+  <div class="status"><span><span id="dot" class="dot"></span><span id="statusText">未連接</span></span><span id="deviceName" class="pill">-</span></div>
+  <div class="row" style="margin-top:14px">
+    <button id="btnConnect" class="btn btn-blue">🔗 連接 JX-180</button>
+    <button id="btnDisconnect" class="btn btn-gray" disabled>斷開</button>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button id="btnStart" class="btn btn-green" disabled>▶️ 開始量測</button>
+    <button id="btnStop" class="btn btn-red" disabled>⏹️ 停止</button>
+  </div>
+  <div style="margin-top:10px;font-size:12px;color:#9aa3b2" id="rawLine">原始封包：-</div>
+</div>
+<div class="card">
+  <div class="big"><div class="label">即時握力 · REAL-TIME</div><div><span id="kg" class="value">0.0</span> <span class="unit">kg</span></div></div>
+  <div class="bar-wrap"><div id="bar" class="bar"></div></div>
+  <div class="scale"><span>0</span><span>20</span><span>40</span><span>60</span><span>80</span><span>90+ kg</span></div>
+  <div class="stats">
+    <div class="stat"><div class="k">🏆 最高 PEAK</div><div class="v" id="peak">0.0</div><div class="k">kg</div></div>
+    <div class="stat"><div class="k">📊 次數</div><div class="v" id="count">0</div><div class="k">次量測</div></div>
+    <div class="stat"><div class="k">⏱️ 持續</div><div class="v" id="elapsed">0.0</div><div class="k">秒</div></div>
+  </div>
+  <div class="row" style="margin-top:12px">
+    <button id="btnTare" class="btn btn-gray btn-small">清零 / 開始</button>
+    <button id="btnPeakReset" class="btn btn-gray btn-small">重設 PEAK</button>
+    <button id="btnSave" class="btn btn-blue btn-small">💾 儲存呢次</button>
+  </div>
+  <label>測試者 / 備註</label><input id="tester" placeholder="例如：阿明 - 右手">
+  <div class="row" style="margin-top:10px"><div style="flex:1"><label>目標 (kg)</label><input id="target" type="number" value="30"></div><div style="flex:1"><label>滿分刻度</label><input id="maxScale" type="number" value="90"></div></div>
+</div>
+<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><b>📋 紀錄</b><div><button id="btnExport" class="btn btn-gray btn-small" style="padding:8px 12px">匯出 CSV</button> <button id="btnClear" class="btn btn-gray btn-small" style="padding:8px 12px">清除</button></div></div><table><thead><tr><th>時間</th><th>測試者</th><th>PEAK</th><th>最後</th></tr></thead><tbody id="tbody"></tbody></table><div id="empty" style="text-align:center;color:#9aa3b2;padding:14px;font-size:13px">未有紀錄，㩒到最高之後撳「儲存呢次」</div></div>
+<div class="card"><b>📡 Log</b><div id="log" class="log"></div></div>
+<div class="footer"><button id="btnBigStart" class="btn btn-green" disabled>▶️ 開始</button><button id="btnBigSave" class="btn btn-blue" disabled>💾 儲存 PEAK</button></div>
+<script>
+const CMD = new Uint8Array([0xAA,0x55,0x01,0x02,0x00,0x00,0x00,0x00,0x00,0xAB]);
+let device=null, server=null, chWrite=null, chNotify=null;
+let polling=null, timer=null, startTime=0;
+let currentKg=0, peakKg=0, buf=[];
+let records = JSON.parse(localStorage.getItem('jx180_records')||'[]');
+const $=id=>document.getElementById(id);
+function log(msg, cls='mut'){ const d=document.createElement('div'); d.className=cls; d.textContent=new Date().toLocaleTimeString('zh-HK')+' '+msg; $('log').prepend(d); }
+function hex(arr){ return Array.from(arr).map(b=>b.toString(16).padStart(2,'0').toUpperCase()).join('-'); }
+function setUI(){ $('kg').textContent=currentKg.toFixed(1); $('peak').textContent=peakKg.toFixed(1); const max=parseFloat($('maxScale').value)||90; $('bar').style.width=Math.min(100, currentKg/max*100)+'%'; }
+function renderRecords(){ $('tbody').innerHTML = records.map(r=>`<tr><td>${r.time}</td><td>${r.tester||'-'}</td><td><b>${r.peak} kg</b></td><td>${r.last} kg</td></tr>`).join(''); $('empty').style.display = records.length ? 'none':'block'; $('count').textContent = records.length; }
+renderRecords(); setUI();
+
+async function connect(){
+  try{
+    if(!navigator.bluetooth){ alert('要用 Android Chrome 先用到藍牙'); return; }
+    log('掃描緊 KC4101...','mut');
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: 'KC' }],
+      optionalServices: [
+        '0000ffe0-0000-1000-8000-00805f9a34fb',
+        '0000ffe0-0000-1000-8000-00805f9b34fb',
+        '0000ffe1-0000-1000-8000-00805f9a34fb',
+        '0000ffe1-0000-1000-8000-00805f9b34fb',
+        '0000ffe2-0000-1000-8000-00805f9a34fb',
+        '0000ffe2-0000-1000-8000-00805f9b34fb'
+      ]
+    });
+    $('deviceName').textContent=device.name||'KC4101';
+    log('已揀：'+device.name+'，連接緊...','mut');
+    device.addEventListener('gattserverdisconnected', onDisconnect);
+    server = await device.gatt.connect();
+    log('GATT 已連，搵緊 Service...','mut');
+    const svcs = await server.getPrimaryServices();
+    log('搵到 Service：'+svcs.map(s=>s.uuid).join(', '),'ok');
+    const svc = svcs.find(s => s.uuid.toLowerCase().startsWith('0000ffe0'));
+    if(!svc) throw new Error('搵唔到 FFE0 Service');
+    const chars = await svc.getCharacteristics();
+    log('搵到 Characteristic：'+chars.map(c=>c.uuid).join(', '),'ok');
+    chWrite = chars.find(c => c.uuid.toLowerCase().startsWith('0000ffe1'));
+    chNotify = chars.find(c => c.uuid.toLowerCase().startsWith('0000ffe2'));
+    if(!chWrite || !chNotify) throw new Error('搵唔到 FFE1 / FFE2');
+    await chNotify.startNotifications();
+    chNotify.addEventListener('characteristicvaluechanged', onNotify);
+    $('dot').classList.add('on'); $('statusText').textContent='已連接：'+(device.name||'KC4101');
+    $('btnConnect').disabled=true; $('btnDisconnect').disabled=false;
+    $('btnStart').disabled=false; $('btnBigStart').disabled=false; $('btnBigSave').disabled=false;
+    log('已連接，FFE2 Notify 已開，可以開始量測','ok');
+  }catch(e){ log('連接失敗：'+e.message,'err'); }
+}
+function onDisconnect(){ stopPolling(); $('dot').classList.remove('on'); $('statusText').textContent='已斷開'; $('btnConnect').disabled=false; $('btnDisconnect').disabled=true; $('btnStart').disabled=true; $('btnStop').disabled=true; $('btnBigStart').disabled=true; log('藍牙已斷開','err'); }
+async function disconnect(){ try{ if(device&&device.gatt.connected) device.gatt.disconnect(); }catch(e){} onDisconnect(); }
+function onNotify(e){
+  const data = new Uint8Array(e.target.value.buffer);
+  $('rawLine').textContent='原始封包：'+hex(data);
+  buf.push(...data); if(buf.length>100) buf=buf.slice(-20);
+  for(let i=0;i+6<buf.length;i++){
+    if(buf[i]===0x3A && buf[i+1]===0x07 && buf[i+2]===0x03 && buf[i+3]===0x02){
+      const hh=buf[i+4], ll=buf[i+5]; const raw = hh*256+ll; const kg = raw/10;
+      currentKg = kg; if(kg>peakKg) peakKg=kg;
+      $('rawLine').textContent=`原始封包：${hex(data)}  →  ${raw} / 10 = ${kg.toFixed(1)} kg`;
+      log(`收到：${hex(data)} → ${kg.toFixed(1)} kg`,'ok'); setUI(); buf = buf.slice(i+7); break;
+    }
+  }
+}
+async function pollOnce(){ if(!chWrite) return; try{ await chWrite.writeValueWithoutResponse(CMD); }catch(e){ try{ await chWrite.writeValueWithResponse(CMD); }catch(e2){ log('寫入失敗：'+e2.message,'err'); } } }
+function startPolling(){ if(polling) return; peakKg=0; currentKg=0; startTime=Date.now(); setUI(); log('開始量測，每 200ms 問一次','ok'); polling=setInterval(pollOnce, 200); timer=setInterval(()=>{ $('elapsed').textContent=((Date.now()-startTime)/1000).toFixed(1); },100); $('btnStart').disabled=true; $('btnStop').disabled=false; $('btnBigStart').textContent='⏸️ 量測緊...'; pollOnce(); }
+function stopPolling(){ clearInterval(polling); polling=null; clearInterval(timer); $('btnStart').disabled=false; $('btnStop').disabled=true; $('btnBigStart').textContent='▶️ 開始'; $('btnBigStart').disabled=false; log('已停止，PEAK：'+peakKg.toFixed(1)+' kg','mut'); }
+function tare(){ peakKg=0; currentKg=0; startTime=Date.now(); setUI(); log('已清零','mut'); }
+function saveRecord(){ if(peakKg<=0){ alert('仲未有數'); return; } const rec={ time:new Date().toLocaleString('zh-HK'), tester:$('tester').value.trim(), peak:peakKg.toFixed(1), last:currentKg.toFixed(1) }; records.unshift(rec); localStorage.setItem('jx180_records', JSON.stringify(records)); renderRecords(); log(`已儲存：${rec.tester||'-'} PEAK ${rec.peak} kg`,'ok'); alert(`已儲存！\nPEAK：${rec.peak} kg`); }
+function exportCSV(){ if(!records.length){ alert('未有紀錄'); return; } const csv='時間,測試者,PEAK(kg),最後(kg)\n'+records.map(r=>`${r.time},${r.tester},${r.peak},${r.last}`).join('\n'); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv'})); a.download='JX180_握力紀錄.csv'; a.click(); }
+$('btnConnect').onclick=connect; $('btnDisconnect').onclick=disconnect; $('btnStart').onclick=startPolling; $('btnStop').onclick=stopPolling; $('btnBigStart').onclick=()=>{ if(polling) stopPolling(); else startPolling(); }; $('btnTare').onclick=tare; $('btnPeakReset').onclick=()=>{ peakKg=0; setUI(); log('PEAK 已重設','mut'); }; $('btnSave').onclick=saveRecord; $('btnBigSave').onclick=saveRecord; $('btnExport').onclick=exportCSV; $('btnClear').onclick=()=>{ if(confirm('清晒所有紀錄？')){ records=[]; localStorage.removeItem('jx180_records'); renderRecords(); } }; $('target').onchange=setUI; $('maxScale').onchange=setUI;
+log('v3 已載入，撳「連接 JX-180」開始','mut');
+</script>
+</body>
+</html>
